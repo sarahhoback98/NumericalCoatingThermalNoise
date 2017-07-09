@@ -7,12 +7,13 @@ Instructions for building this code, and example use cases, will be added here. 
 I recommend first ensuring that you can build and run the deal.II tutorials step-3 (Laplace equation), step-8 (2D elastic equations), and step-17 (petsc + MPI Laplace equation).
 
 To run the code, e.g., do this:
-
+<tt>
 cd /path/to/QuasistaticBrownianThermalNoise.cpp
 cmake .
 make release #or just "make"...if a debug version of dealii is 
              #installed, make release avoids it
-mpirun -np 12 QuasistaticBrownianThermalNoise.cpp
+mpirun -np 12 QuasistaticBrownianThermalNoise.cpp #run on 12 cores
+</tt>
 
 To run on a cluster, you might use a batch submission script; an example 
 script is provided.
