@@ -561,13 +561,19 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 
     //Set the x in Al_{x}Ga_{1-x}As, i.e., the aluminum fraction
     //Chalermsongsak+ (2015) uses x=0.92
-    double x = 0.92;
+    //double x = 0.92; //uncomment if using the Gehrsitz+ formulas.
 
     //Gehrsitz+, PRB 60, 11601 (1999) gives [their Eq. (2)]:
     //Units: TPa, i.e., 10^{12} Pa.
-    double c11 = 0.188; // 0.188 +/- 0.7 TPa
-    double c12 = 0.0537 + 0.00485*x + 0.0119*x*x - 0.0130*x*x*x;
-    double c44 = 0.0591-0.00188*x;
+    //double c11 = 0.188; // 0.188 +/- 0.7 TPa
+    //double c12 = 0.0537 + 0.00485*x + 0.0119*x*x - 0.0130*x*x*x;
+    //double c44 = 0.0591-0.00188*x;
+
+    //Just use Cole+ (2013) elastic moduli.
+    //Supplemental document, section S2.
+    double c11 = 119.94/1000.0;
+    double c12 = 55.38/1000.0;
+    double c44 = 59.15/1000.0;
 
     //The following code sets all 21 nonzero components. 
     //Prepared in Mathematica, then sorted here by hand. 
@@ -1264,7 +1270,9 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     const double subNoiseTimesf = 
       toSI * fourKbToverPi * substrateEnergy * lossPhi;
     const double coatNoiseTimesf = 
-      toSI * fourKbToverPi * coatingEnergy * lossPhiAlGaAsx92;
+      //toSI * fourKbToverPi * coatingEnergy * lossPhiAlGaAsx92;
+      //Use same loss angle for coating whether crystal or effective isotropic
+      toSI * fourKbToverPi * coatingEnergy * lossPhiAlGaAsIso;
     const double totalNoiseTimesf = subNoiseTimesf + coatNoiseTimesf;
 
     const double subAmpNoiseTimesSqrtf = sqrt(subNoiseTimesf);
