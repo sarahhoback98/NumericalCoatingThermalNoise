@@ -9,9 +9,12 @@ I recommend first ensuring that you can build and run the deal.II tutorials step
 To run the code, e.g., do this:
 <tt>
 cd /path/to/QuasistaticBrownianThermalNoise.cpp
+
 cmake .
+
 make release #or just "make"...if a debug version of dealii is 
              #installed, make release avoids it
+
 mpirun -np 12 QuasistaticBrownianThermalNoise.cpp #run on 12 cores
 </tt>
 
