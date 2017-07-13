@@ -223,6 +223,9 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 
     //Timing
     TimerOutput                               computing_timer;    
+
+    bool mVTKOutput;
+    unsigned int mNumberOfCycles;
   };
 
   //****************************************************************//
@@ -282,6 +285,7 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     F0(inF0)
   {}
 
+  // P1700183 Eq. (31) third integrand, Eq. (25), etc. Tjz = -F p(r)
   template <int dim>
   inline
   void NeumannValues<dim>::vector_value (const Point<dim> &p,
@@ -306,7 +310,7 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
       values(i) = 0.;
     }
 
-    //Second, set the z value = \bar{T}_{zz} = a exp[(-x^2-y^2)/r0^2] in 3D
+    //Second, set the z value = \bar{T}_{zz} = F0 exp[(-x^2-y^2)/r0^2] in 3D
     double myValue = 0.0;
     for(unsigned int i=0; i<dim-1; ++i) {
       myValue -= p(i)*p(i);            
@@ -366,7 +370,8 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 
     //Set the right-hand side to zero. Aside from the Neumann condition
     //to be implemented elsewhere, the system is in equilibrium.
-    //This is the RHS of -\nabla_i T_{ij} = 0. 
+    //This is the RHS of -\nabla_i T_{ij} = 0. (cf. P1700183 Eq. (23)
+    //and second integrand in P1700183 Eq. (31))
     for(unsigned int i=0; i<dim; ++i) {
       values(i) = 0.;
     }
@@ -421,7 +426,9 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     computing_timer (mpi_communicator,
                      pcout,
                      TimerOutput::summary,
-                     TimerOutput::wall_times)
+                     TimerOutput::wall_times),
+    mVTKOutput(false),
+    mNumberOfCycles(3) // resolutions to do: 0,1,...mNumberOfCycles - 1
 
   {
 
@@ -431,7 +438,8 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     // Intialize beam width w (in same units as innerMirrorSize) 
     // and beam amplitude a (=F_0, in code units)
     r0 = 176.77669534; //note: our "r0" is r_0 in Liu & Thorne (2000)
-                      // 176.7 from Cole+ (2015)
+                       //cf. P1700183 Eq. (4)   
+                       // 176.7 from Cole+ (2013)
     F0 = 0.001;
 
 
@@ -742,13 +750,6 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 
     std::vector<types::global_dof_index> local_dof_indices (dofs_per_cell);
 
-    //This will have to be rewritten when I go to a general Yijkl formulation.
-    std::vector<double>     lambda_values (n_q_points);
-    std::vector<double>     mu_values (n_q_points);
-    // Note from geoffrey: I choose E=1, nu = 0.17. These functions will
-    // later on fill my lists. Could be space dependent but not for now.
-    ConstantFunction<dim> lambda(lame_lambda_FusedSilica), mu(lame_mu_FusedSilica);
-
     RightHandSide<dim>      right_hand_side;
     std::vector<Vector<double> > rhs_values (n_q_points,
                                              Vector<double>(dim));
@@ -789,6 +790,8 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 	// M_{AB} = Y_{icomp(A)kcomp(B)} \Phi_{Acomp(A);i} \Phi_{Bcomp(B);k}
 	// so I only must sum over i and k.
 	//       
+	// Eq. (31) of P1700183: integrand of first integral
+	// Eq. (39) of P1700183
 
 	//DOF loops
 	for (unsigned int A=0; A<dofs_per_cell; ++A) {
@@ -924,7 +927,7 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
   }
 
   //solver doesn't care how the matrix and vector were put together.
-  //so same as before, except now use petsc!
+  //so same as 1 core, except now use petsc!
   //CG solver: works because matrix is positive definite, symmetric
   //Hypre preconditioner: scales well (see step-40 for details)
   template <int dim>
@@ -940,13 +943,8 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 					    1.e-12);
     LA::SolverCG cg (solver_control, mpi_communicator);
 
-    //LA::MPI::PreconditionAMG preconditioner;
-    //LA::MPI::PreconditionAMG::AdditionalData data;
-    //data.symmetric_operator = true;
-
-    //preconditioner.initialize(system_matrix, data);
-    //LA::MPI::PreconditionBlockJacobi preconditioner(system_matrix);
-    
+    //hypre parasails preconditioner works well, others I tested
+    //not well
     PETScWrappers::PreconditionParaSails preconditioner;
     PETScWrappers::PreconditionParaSails::AdditionalData data;
     data.symmetric = true;
@@ -996,6 +994,8 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     //Load up the global error vector
     //See step-17 for details...set up a parallel vector
 
+    //for now, each proc refines separately
+    //future version: refine based on single global error estimate
     //refine the grid:
     parallel::distributed::GridRefinement::refine_and_coarsen_fixed_number 
       (triangulation,
@@ -1019,8 +1019,8 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
   void ElasticProblem<dim>::output_results (const unsigned int cycle) 
   {
     TimerOutput::Scope t(computing_timer, "output");
-    //VTK output if running on 32 procs or less
-    if (Utilities::MPI::n_mpi_processes(mpi_communicator) <= 32) {
+    //VTK output if flag enabled
+    if (mVTKOutput) {
 
       DataOut<dim> data_out;
       data_out.attach_dof_handler (dof_handler);
@@ -1206,7 +1206,8 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 						 mpi_communicator);
     double coatingEnergy =  Utilities::MPI::sum(local_coatingEnergy,
 						mpi_communicator);
-
+    //Normalize energy: Fluctuation-dissipation theorem divides out F0^2
+    //dependence. I just do this here.
     energy /= F0*F0;
     substrateEnergy /= F0*F0;
     coatingEnergy /= F0*F0;
@@ -1283,9 +1284,6 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     const double fourKbToverPi = (4.*kB*T)/M_PI;
     
     const double toSI = 1.e-6; //gives noise in m/sqrt(Hz)
-    //const double LIGOLength = 4.e3;//SI conversion below, so LIGOLength in m.
-    //const double toSI = 1.e-6 * (4./(LIGOLength*LIGOLength)); //about 1e-12
-                                                              // /m^2
 
     const double subNoiseTimesf = 
       toSI * fourKbToverPi * substrateEnergy * lossPhi_Iso_FusedSilica;
@@ -1315,11 +1313,10 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 	  << coatAmpNoiseTimesSqrtf 
 	  << std::endl;
 
-    // std::cout << "Local energy [" 
-    // 	      << Utilities::MPI::this_mpi_process(mpi_communicator)
-    // 	      << "] = " << local_energy << std::endl;
+    // print if column 0
     if (Utilities::MPI::this_mpi_process(mpi_communicator) == 0) {
       std::ofstream eOut("Energy.dat", std::ios::app);
+      //print headers before resolution 0
       if (cycle == 0) {
 	eOut << "# Elastic energy in deformed mirror " << std::endl;       
 	eOut << "# [1] refinement level = cycle" << std::endl;
@@ -1331,7 +1328,7 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 	eOut << "# [6] coating amp noise (m/sqrt(Hz)) * sqrt(f)" << std::endl;
 	eOut << "# [7] total amp noise (m/sqrt(Hz)) * sqrt(f)" << std::endl;
       }
-      eOut << std::setprecision(15);
+      eOut << std::setprecision(14);
       eOut << cycle << " " << energy << " " 
 	   << substrateEnergy << " " << coatingEnergy << " "
 	   << subAmpNoiseTimesSqrtf << " " << coatAmpNoiseTimesSqrtf << " " 
@@ -1347,39 +1344,13 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
   template <int dim>
   void ElasticProblem<dim>::run ()
   {
-    for (unsigned int cycle=0; cycle<3; ++cycle)
+    for (unsigned int cycle=0; cycle<mNumberOfCycles; ++cycle)
       {
         pcout << "Cycle " << cycle << ':' << std::endl;
 	pcout << "Time: " << currentDateTime() << std::endl;
 
         if (cycle == 0) //set up the grid
           {
-	    //modify the domain: we want a box
-	    //in 2D: a square -100<x<100, -100<y<0
-	    //in 3D: a prism -100<x<100, -100<y<100, -100<z<0
-
-
-	    //the main mesh: possibly surround with more rectangles
-
-	    //outFac and innerMirrorSize now set in ElasticProblem constructor
- 	    //double outFac = 10.; //factor for enlarging the grid
-	    //const double innerMirrorSize = 100.; //base size for refinement
-
-	    //Point<dim> low(true);
-	    //Point<dim> up(true);
-	    //for(unsigned int i=0; i<dim; ++i) {
-	    //  low(i) = -1.*innerMirrorSize*outFac;
-	    //  up(i) = 1.*innerMirrorSize*outFac;
-	    //}
-	    //up(dim-1) = 0.;
-	    //up(dim-1) = d; //coating of thickness d begins at z=0
-
-	    // Make a rectangle
-	    //GridGenerator::hyper_rectangle<dim> (triangulation, 
-	    //				       low,
-	    //				       up,
-	    //				       false);	    
-
 	    // Make a cylinder
 	    GridGenerator::cylinder(triangulation, rad, halflength);
 
@@ -1388,18 +1359,9 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 	    // z=0 and so the cylinder axis is the z axis.
 	    GridTools::transform(CylTransFunc(d,halflength),triangulation); 
 
-	    // Read in a cylindrical mesh
-	    // GridIn<dim> gridin;
-	    // gridin.attach_triangulation(triangulation);
-	    // std::ifstream file("mirrorCoated.msh");
-	    // gridin.read_msh(file);
-	    // file.close();
-
-	    // The cylinder axis is now along the 2=z axis
-	    // Note dim=3 required here
-	    // The cylinder manifold helps AMR know where to put new points
-	    // UNCOMMENT IF USING CYLINDER DOMAIN
-
+	    //The manifold helps code know how to refine to get smoother
+	    //culinder instead of starting with an octagonal prism and then
+	    //refining that, instead of increasing the number of prism sides
 	    static const CylindricalManifold<dim> cylindrical_manifold(2);
 	    triangulation.set_all_manifold_ids(0);
 	    triangulation.set_manifold(0,cylindrical_manifold);
@@ -1417,40 +1379,10 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 	    	  << triangulation.n_global_levels() << "."
 	    	  << std::endl;
 
-
-	    //This turns out to not do anything in practice, so don't bother.
-	    //Few or no cells end up flagged by this code.
-
-	    //refine to put more points near the boundary
-	    // const int refineByWIts = 1;
-	    // for (unsigned int j=0; j<refineByWIts; ++j) {
-	    //   typename Triangulation<dim>::active_cell_iterator
-	    // 	cell = triangulation.begin_active(),
-	    // 	endc = triangulation.end();
-	    //   for (; cell!=endc; ++cell) {
-	    // 	for (unsigned int v=0;
-	    // 	     v < GeometryInfo<dim>::vertices_per_cell;
-	    // 	     ++v) {
-	    // 	  const double vertexDist = cell->vertex(v)(dim-1);
-	    // 	  double vertexRad = 0.;
-	    // 	  for (unsigned int k=0; k<dim-1; ++k) {
-	    // 	    vertexRad += cell->vertex(v)(k)*cell->vertex(v)(k);
-	    // 	  }
-	    // 	  vertexRad = sqrt(vertexRad);
-	    // 	  if (fabs(vertexDist) < w * (refineByWIts-j)
-	    // 	      && vertexRad < (w * (refineByWIts-j))) {
-	    // 	    cell->set_refine_flag();
-	    // 	    break;
-	    // 	  }
-	    // 	}
-	    //   }
-	    // triangulation.execute_coarsening_and_refinement();
-	    // }
-
 	    //refine to put more points near the boundary
 	    //This is necessary for the solver to latch on to the 
 	    //correct solution.
-	    const int refineByDIts = 2;//6;
+	    const int refineByDIts = 2;//in the past, I used 6 here
 
 	    for (unsigned int j=0; j<refineByDIts; ++j) {
 	      typename Triangulation<dim>::active_cell_iterator
@@ -1466,7 +1398,6 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 		    vertexRad += cell->vertex(v)(k)*cell->vertex(v)(k);
 		  }
 		  vertexRad = sqrt(vertexRad);
-		  //		  if (fabs(vertexDist) < 10.*d
 		  if (fabs(vertexDist) < r0
 		      && vertexRad < (refineByDIts-j)*r0) {
 		    cell->set_refine_flag();
@@ -1481,70 +1412,7 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 		  << std::endl;
 	    }	  
 
-	    //refine to put more points near the boundary - round 2
-	    //not sure whether or not this is necessary
-	    // const int refineByDItsRound2 = 4;
-
-	    // for (unsigned int j=0; j<refineByDItsRound2; ++j) {
-	    //   typename Triangulation<dim>::active_cell_iterator
-	    // 	cell = triangulation.begin_active(),
-	    // 	endc = triangulation.end();
-	    //   for (; cell!=endc; ++cell) {
-	    // 	for (unsigned int v=0;
-	    // 	     v < GeometryInfo<dim>::vertices_per_cell;
-	    // 	     ++v) {
-	    // 	  const double vertexDist = cell->vertex(v)(dim-1);
-	    // 	  double vertexRad = 0.;
-	    // 	  for (unsigned int k=0; k<dim-1; ++k) {
-	    // 	    vertexRad += cell->vertex(v)(k)*cell->vertex(v)(k);
-	    // 	  }
-	    // 	  vertexRad = sqrt(vertexRad);
-	    // 	  //if (fabs(vertexDist) < 10.*d
-	    // 	  if (fabs(vertexDist) < w
-	    // 	      && vertexRad < (refineByDItsRound2-j)*w) {
-	    // 	    cell->set_refine_flag();
-	    // 	    break;
-	    // 	  }
-	    // 	}
-	    //   }
-	    // triangulation.execute_coarsening_and_refinement();
-	    // }	  
-
-	    // //refine to put more points near the boundary - round 3
-	    // const int refineByDItsRound3 = 2;
-
-	    // for (unsigned int j=0; j<refineByDItsRound3; ++j) {
-	    //   typename Triangulation<dim>::active_cell_iterator
-	    // 	cell = triangulation.begin_active(),
-	    // 	endc = triangulation.end();
-	    //   for (; cell!=endc; ++cell) {
-	    // 	for (unsigned int v=0;
-	    // 	     v < GeometryInfo<dim>::vertices_per_cell;
-	    // 	     ++v) {
-	    // 	  const double vertexDist = cell->vertex(v)(dim-1);
-	    // 	  double vertexRad = 0.;
-	    // 	  for (unsigned int k=0; k<dim-1; ++k) {
-	    // 	    vertexRad += cell->vertex(v)(k)*cell->vertex(v)(k);
-	    // 	  }
-	    // 	  vertexRad = sqrt(vertexRad);
-	    // 	  //if (fabs(vertexDist) < 10.*d
-	    // 	  if (fabs(vertexDist) < (refineByDItsRound3-j)*10.*d
-	    // 	      && vertexRad < (refineByDItsRound3-j)*w) {
-	    // 	    cell->set_refine_flag();
-	    // 	    break;
-	    // 	  }
-	    // 	}
-	    //   }
-	    // triangulation.execute_coarsening_and_refinement();
-	    // }	  
-
-
-	    //This is now unnecessary...boundary ID's set in mirror.geo,
-	    //if using a gmsh domain
-	    //ID 0 = dirichlet, frozen
-	    //ID 1 = mirror face, where pressure applied
-
-	    //Set the Neumann boundary
+	    //Set the Neumann boundary...top face: find by looping over all
             typename Triangulation<dim>::cell_iterator
 	      cell = triangulation.begin (),
 	      endc = triangulation.end();
