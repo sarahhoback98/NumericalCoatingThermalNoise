@@ -92,7 +92,7 @@ namespace LA
 #include <typeinfo> //get type of pointer, used in looping over cells
 
 //****************************************************************//  
-// enumerate different available Yijkl
+// Enumerate different available Yijkl
 //****************************************************************//  
 enum material { kAlGaAs, kIso_AlGaAs, kIso_Ta2O5, kIso_FusedSilica };
 
@@ -508,9 +508,9 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     halflength = rad/2.+d/2.; //1.0 in + coating = total thickness
 
     
-
+    ////////////////////////////////////////////////////////
     //nothing below should need changing for different runs
-   
+    ////////////////////////////////////////////////////////
 
     // For isotropic materials, choose the Lame parameters.
     // Here: Fused Silica (amorphous SiO2)
