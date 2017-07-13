@@ -15,14 +15,16 @@
  * ---------------------------------------------------------------------
 
  *
- * Author: Geoffrey Lovelace, Cal State Fullerton, 2015
+ * Author: Geoffrey Lovelace, Cal State Fullerton, 2017
+ *
+ * This code has been tested with deal.ii v8.2.1.
  */
 
 #include <deal.II/base/quadrature_lib.h> //
 #include <deal.II/base/function.h> //
 #include <deal.II/base/timer.h> //
 
-// New for bringing parallelization over to petsc + p4est
+// Support parallelization with petsc + p4est
 #include <deal.II/lac/generic_linear_algebra.h>
 #define USE_PETSC_LA
 
@@ -83,16 +85,17 @@ namespace LA
 #include <iomanip>
 #include <cmath>
 
+//Support for reading in grids in potential future versions
 #include <deal.II/grid/grid_in.h>
 #include <deal.II/grid/grid_out.h>
-//#include <deal.II/dofs/dof_renumbering.h> //Make sparse matrix more diagonal
-//#include <deal.II/base/convergence_table.h>
+
 #include <typeinfo> //get type of pointer, used in looping over cells
 
 //****************************************************************//  
 // Date and Time Function         
 //****************************************************************//   
-
+// Return the current date and time as an array of characters
+// Printed to assist in profiling
 const std::string currentDateTime() {
   time_t     now = time(0);
   struct tm  tstruct;
@@ -103,15 +106,21 @@ const std::string currentDateTime() {
   return buf;
 }
 
-namespace ElastostaticMirror
+namespace QuasistaticBrownianThermalNoise
 {
   using namespace dealii;
 
 //****************************************************************//  
 // Cylinder translation function
 //****************************************************************//   
+//The dealii primitive cylinder has an axis on the x axis.
+//This rotates and shifts the cylinder so the cylinder domain has 
+//an axis parallel to the z axis, with the coating-substrate
+//boundary at z=0.
+
 struct CylTransFunc
 {
+  //Define the CylTransFunc struct ("public class")
   CylTransFunc(double coatThick, double halfCylThick);
   double d,halflength;
   Point<3> operator() (const Point<3> &in) const
@@ -128,6 +137,8 @@ struct CylTransFunc
   }
 };
 
+//Constructor just initializes member variables with passed in 
+//parameters.
 CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
   d(coatThick),
   halflength(halfCylThick)
@@ -145,7 +156,7 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
   class ElasticProblem
   {
   public:
-    ElasticProblem (); //sets constants mirrorSize,outFac,w,a
+    ElasticProblem (); //sets constants mirrorSize,outFac,r0,a
     ~ElasticProblem ();
     void run ();
 
@@ -170,6 +181,7 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 
     ConstraintMatrix     constraints;
 
+    //Do not define a SparsityPattern, as petsc has its own
     //SparsityPattern      sparsity_pattern; // petsc has its own sparsity 
                                              // handler
     LA::MPI::SparseMatrix system_matrix;
@@ -181,14 +193,30 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 
     ConditionalOStream pcout; //Output stream that only prints on proc0
 
-    //ConvergenceTable     convergence_table;
-
+    //Built-in Young's tensors
+    //Y_Iso_FusedSilica = fused silica
+    //Y_AlGaAs = AlGaAs x=0.92 crystal
+    //Y_Iso_AlGaAs = effective isotropic x=0.92 AlGaAs
+    //Y_Iso_Ta2O5 = Ta2O5 isotropic coating material
     //Young tensors Yijkl
-    Tensor<4,dim>        Y_Iso, Y, Y_Iso_Ta2O5, Y_Iso_AlGaAs;
-    double               lame_mu, lame_lambda, 
-      lame_mu_Ta2O5, lame_lambda_Ta2O5, w, a, d,
+    Tensor<4,dim>        Y_Iso_FusedSilica, Y_AlGaAs, 
+      Y_Iso_Ta2O5, Y_Iso_AlGaAs;
+
+    //The built-in Young's tensors have lame_mu and lame_lambda defined
+    //These are the Lame parameters used to construct Y
+    double               lame_mu_FusedSilica, lame_lambda_FusedSilica, 
+      lame_mu_Ta2O5, lame_lambda_Ta2O5, 
       lame_mu_AlGaAs, lame_lambda_AlGaAs;
-    double lossPhi, lossPhiTa2O5, lossPhiAlGaAsx92, lossPhiAlGaAsIso;
+
+    //Mirror dimensions
+    double r0, F0, d;
+
+    //Loss angles for each built-in material
+    // lossPhi_Iso = fused silica
+    // lossPhi_Ta2O5 = Tantalum oxide
+    // lossAlGaAsx92 = x=0.92 AlGaAs
+    // lossPhiAlGasIso = loss angle when using effective isotropic AlGaAs
+    double lossPhi_Iso, lossPhi_Ta2O5, lossPhiAlGaAsx92, lossPhiAlGaAsIso;
 
     //Mirror dimension parameters
     double               mirrorSize, outFac, rad, halflength;
@@ -207,8 +235,8 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
   class NeumannValues :  public Function<dim>
   {
   public:
-    NeumannValues (const double& inW, const double& inA);
-    double w,a;
+    NeumannValues (const double& inR0, const double& inA);
+    double r0,F0;
 
     //Return the x,y,z values of the Neumann value at a point
     virtual void vector_value (const Point<dim> &p,
@@ -247,11 +275,11 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
   //components (dim=3).
 
   template <int dim>
-  NeumannValues<dim>::NeumannValues (const double& inW, const double& inA)
+  NeumannValues<dim>::NeumannValues (const double& inR0, const double& inF0)
     :
     Function<dim> (dim),
-    w(inW),
-    a(inA)
+    r0(inR0),
+    F0(inF0)
   {}
 
   template <int dim>
@@ -273,8 +301,8 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
    
     // Note: these are now set in the ElasticProblem constructor
     //const double a = 1.0; //this is a pressure in units of Young's modulus E
-    //const double w = 1.0; //this is a distance in absolute units
-                          //e.g. if mirrorSize = 100, w=1 is 1% of the 
+    //const double r0 = 1.0; //this is a distance in absolute units
+                          //e.g. if mirrorSize = 100, r0=1 is 1% of the 
                           //mirror size
 
     //First, set all values to zero.
@@ -282,8 +310,8 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
       values(i) = 0.;
     }
 
-    //Second, set the z value = \bar{T}_{zz} = a exp[(-x^2-y^2)/w^2] in 3D
-    //in 2D, set the y value \bar{T}_{yy} = a exp[-(x^2)]/w^2
+    //Second, set the z value = \bar{T}_{zz} = a exp[(-x^2-y^2)/r0^2] in 3D
+    //in 2D, set the y value \bar{T}_{yy} = a exp[-(x^2)]/r0^2
     double myValue = 0.0;
     for(unsigned int i=0; i<dim-1; ++i) {
       myValue -= p(i)*p(i);            
@@ -293,10 +321,10 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 
     //The negative sign here is because Tzj should point in the -z 
     //direction, so the mirror is compressed, not stretched.
-    myValue = -1.0 * a * exp(myValue/(w*w));
+    myValue = -1.0 * F0 * exp(myValue/(r0*r0));
 
-    //Normalize: e.g. Liu+ Eq. (2): if a=F0, I'd better divide by pi*w^2
-    myValue /= M_PI * w * w;
+    //Normalize: e.g. Liu+ Eq. (2): if F0=F0, I'd better divide by pi*r0^2
+    myValue /= M_PI * r0 * r0;
 
     values(dim-1) = myValue;
     
@@ -386,8 +414,8 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
                             //more accurate, at least for smooth solutions.
     pcout (std::cout,
 	   (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)),
-    Y_Iso(),
-    Y(),
+    Y_Iso_FusedSilica(),
+    Y_AlGaAs(),
     Y_Iso_Ta2O5(),
     Y_Iso_AlGaAs(),
     //Initialize a timer
@@ -403,9 +431,9 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 
     // Intialize beam width w (in same units as mirrorSize) 
     // and beam amplitude a (=F_0, in code units)
-    w = 176.77669534; //note: our "w" is r_0 in Liu & Thorne (2000)
+    r0 = 176.77669534; //note: our "r0" is r_0 in Liu & Thorne (2000)
                       // 176.7 from Cole+ (2015)
-    a = 0.001;
+    F0 = 0.001;
 
 
     // Choose the size of the mirror: it's a rectangle with points
@@ -413,7 +441,7 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     // up  = (mirrorSize*outFac, mirrorSize*outFac, 0)
     // Later, I will insert a coating above z=0, and move the outer boundary.
     rad = 25000/2.0; //25800.; 
-    mirrorSize = 4.*w; // this isn't the full size, but is used to help
+    mirrorSize = 4.*r0; // this isn't the full size, but is used to help
                        // concentrate points near the spacer
     outFac = rad / mirrorSize; //so total mirror size is rad
                                //diameter of substrate is 25000 micron in 
@@ -441,29 +469,29 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     //K = bulk modulus, mu = shear modulus
     //E = 9 mu K / (3K + mu), nu = (3K - 2 mu)/(2(3k+mu)), K=lambda+(2/3)mu
 
-    //lame_lambda = 0.016071;
-    //lame_mu     = 0.0311966;
+    //lame_lambda_FusedSilica = 0.016071;
+    //lame_mu_FusedSilica     = 0.0311966;
 
-    lame_lambda = 0.0158508;
-    lame_mu = 0.0307692;
+    lame_lambda_FusedSilica = 0.0158508;
+    lame_mu_FusedSilica = 0.0307692;
 
     // Define some dimensionless loss angles.
-    // lossPhi = fused silica
-    // lossPhiTa2O5 = Tantalum oxide
+    // lossPhi_Iso = fused silica
+    // lossPhi_Ta2O5 = Tantalum oxide
     // lossAlGaAsx92 = x=0.92 AlGaAs
     //lossPhi = 1.e-7; //Chalermsongsak+ (2015) Table I
-    lossPhi = 1.e-6; //Cole+ (2013)
-    lossPhiTa2O5 = 4.e-4; //Yamamoto+ (2006), PRD 74, 022002 (good value??)
+    lossPhi_Iso = 1.e-6; //Cole+ (2013)
+    lossPhi_Ta2O5 = 4.e-4; //Yamamoto+ (2006), PRD 74, 022002 (good value??)
     lossPhiAlGaAsIso = 2.5e-5; //Cole+ (2013)
     lossPhiAlGaAsx92 = 2.41e-5; //Chalermsongsak+ (2015) Table I
                              //hope this is ok given this is for a layered
                              //coating...AlGaAsx92 and GaAs are given
                              //identical elastic properties, so maybe so
 
-    /* lame_mu = 0.4273504273504274; Units where E=1 */
-    /* lame_lambda = 0.2201502201502202; Units where E=1 */
+    /* lame_mu_FusedSilica = 0.4273504273504274; Units where E=1 */
+    /* lame_lambda_FusedSilica = 0.2201502201502202; Units where E=1 */
 
-    //Set Y_Iso   
+    //Set Y_Iso_FusedSilica   
     for(int i=0;i<dim;++i) {
       for(int j=0;j<dim;++j) {
 	for(int k=0;k<dim;++k) {
@@ -471,15 +499,15 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 	    
 	    //Y_{ijkl} = lambda dij dkl + mu dik djl + mu dil djk
 	    if(i==j && k==l) {
-	      Y_Iso[i][j][k][l] += lame_lambda;
+	      Y_Iso_FusedSilica[i][j][k][l] += lame_lambda_FusedSilica;
 	    }
 	    
 	    if(i==k && j==l) {
-	      Y_Iso[i][j][k][l] += lame_mu;
+	      Y_Iso_FusedSilica[i][j][k][l] += lame_mu_FusedSilica;
 	    }
 	    
 	    if(i==l && j==k) {
-	      Y_Iso[i][j][k][l] += lame_mu;
+	      Y_Iso_FusedSilica[i][j][k][l] += lame_mu_FusedSilica;
 	    }
 	    
 	  }
@@ -578,31 +606,31 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     //The following code sets all 21 nonzero components. 
     //Prepared in Mathematica, then sorted here by hand. 
     //I also checked this by eye.
-    Y[0][0][0][0] =c11;
-    Y[1][1][1][1] =c11;
-    Y[2][2][2][2] =c11;    
+    Y_AlGaAs[0][0][0][0] =c11;
+    Y_AlGaAs[1][1][1][1] =c11;
+    Y_AlGaAs[2][2][2][2] =c11;    
 
-    Y[0][0][1][1] =c12;
-    Y[0][0][2][2] =c12;
-    Y[1][1][0][0] =c12;
-    Y[1][1][2][2] =c12;
-    Y[2][2][0][0] =c12;
-    Y[2][2][1][1] =c12;
+    Y_AlGaAs[0][0][1][1] =c12;
+    Y_AlGaAs[0][0][2][2] =c12;
+    Y_AlGaAs[1][1][0][0] =c12;
+    Y_AlGaAs[1][1][2][2] =c12;
+    Y_AlGaAs[2][2][0][0] =c12;
+    Y_AlGaAs[2][2][1][1] =c12;
 
-    Y[0][1][0][1] =c44;
-    Y[0][1][1][0] =c44;
-    Y[1][0][0][1] =c44;
-    Y[1][0][1][0] =c44;
+    Y_AlGaAs[0][1][0][1] =c44;
+    Y_AlGaAs[0][1][1][0] =c44;
+    Y_AlGaAs[1][0][0][1] =c44;
+    Y_AlGaAs[1][0][1][0] =c44;
 
-    Y[0][2][0][2] =c44;
-    Y[0][2][2][0] =c44;
-    Y[2][0][0][2] =c44;
-    Y[2][0][2][0] =c44;
+    Y_AlGaAs[0][2][0][2] =c44;
+    Y_AlGaAs[0][2][2][0] =c44;
+    Y_AlGaAs[2][0][0][2] =c44;
+    Y_AlGaAs[2][0][2][0] =c44;
 
-    Y[1][2][1][2] =c44;
-    Y[1][2][2][1] =c44;
-    Y[2][1][1][2] =c44;
-    Y[2][1][2][1] =c44;
+    Y_AlGaAs[1][2][1][2] =c44;
+    Y_AlGaAs[1][2][2][1] =c44;
+    Y_AlGaAs[2][1][1][2] =c44;
+    Y_AlGaAs[2][1][2][1] =c44;
 
 
   } //end of ElasticProblem constructor
@@ -727,7 +755,7 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     std::vector<double>     mu_values (n_q_points);
     // Note from geoffrey: I choose E=1, nu = 0.17. These functions will
     // later on fill my lists. Could be space dependent but not for now.
-    ConstantFunction<dim> lambda(lame_lambda), mu(lame_mu);
+    ConstantFunction<dim> lambda(lame_lambda_FusedSilica), mu(lame_mu_FusedSilica);
 
     RightHandSide<dim>      right_hand_side;
     std::vector<Vector<double> > rhs_values (n_q_points,
@@ -736,7 +764,7 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     // The Neumann values are set up the same way as the right hand side,
     // except that we pass in the beam size and amplitude.
     // We don't precompute them here. Instead, we get them on the faces later.
-    NeumannValues<dim>      neumann(w,a);
+    NeumannValues<dim>      neumann(r0,F0);
 
     // Now we can begin with the loop over all cells:
     typename DoFHandler<dim>::active_cell_iterator 
@@ -790,15 +818,15 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 		  // just use a single Yijkl tensor.
 		  
 		  //isotropic substrate:
-		  //Yijkl = Y_Iso[i][component_A][k][component_B];
+		  //Yijkl = Y_Iso_FusedSilica[i][component_A][k][component_B];
 
 		  // AlGaAs coating, fused silica substrate
 		  // find the quadrature point. If z > 0, it's in the coating.
 		  // Otherwise, it's in the substrate.
 		  if(fe_values.quadrature_point(q_point)(dim-1) > 0.) {
-		    Yijkl = Y[i][component_A][k][component_B];
+		    Yijkl = Y_AlGaAs[i][component_A][k][component_B];
 		  } else {
-		    Yijkl = Y_Iso[i][component_A][k][component_B];
+		    Yijkl = Y_Iso_FusedSilica[i][component_A][k][component_B];
 		  }
 
 		  // Now, the matrix element picks up a term 
@@ -1138,16 +1166,16 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 	      for(int k=0;k<dim;++k) {
 		for(int l=0;l<dim;++l) {
 
-		// Set Yijkl...here, set it to Y_Iso, an isotropic tensor,
+		// Set Yijkl...here, set it to Y_Iso_FusedSilica, an isotropic tensor,
 		// a member variable of ElasticProblem.
 		// Note: in principle, choose a Y based on position of 
 		// q_point.
 
 		//Isotropic substrate
-		//theYijkl = Y_Iso[i][j][k][l];
+		//theYijkl = Y_Iso_FusedSilica[i][j][k][l];
 
 		//AlGaAs coating, fused silica substrate
-		//theYijkl = Y[i][j][k][l] in coating, Y_Iso in substrate;
+		//theYijkl = Y[i][j][k][l] in coating, Y_Iso_FusedSilica in substrate;
 
 		  local_thisEnergy =
 		    0.5 
@@ -1156,11 +1184,11 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 		    * solution_gradients[q_point][l][k];		    
 
 		if(fe_values.quadrature_point(q_point)(dim-1) > 0.) {
-		  theYijkl = Y[i][j][k][l];
+		  theYijkl = Y_AlGaAs[i][j][k][l];
 		  local_thisEnergy *= theYijkl;
 		  local_coatingEnergy += local_thisEnergy;
 		} else {
-		  theYijkl = Y_Iso[i][j][k][l];
+		  theYijkl = Y_Iso_FusedSilica[i][j][k][l];
 		  local_thisEnergy *= theYijkl;
 		  local_substrateEnergy += local_thisEnergy;
 		}
@@ -1187,13 +1215,13 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     double coatingEnergy =  Utilities::MPI::sum(local_coatingEnergy,
 						mpi_communicator);
 
-    energy /= a*a;
-    substrateEnergy /= a*a;
-    coatingEnergy /= a*a;
+    energy /= F0*F0;
+    substrateEnergy /= F0*F0;
+    coatingEnergy /= F0*F0;
 
-    //I now have U/a^2 = Uo/Fo^2. The thermal noise is given by 
-    //(e.g. Hong+ Eq. (46) S = (4 k_B T / pi f) (U/a^2) \phi
-    //So the code can compute f S = (4 k_B T / pi) \phi (U/a^2)
+    //I now have U/F0^2 = Uo/Fo^2. The thermal noise is given by 
+    //(e.g. Hong+ Eq. (46) S = (4 k_B T / pi f) (U/F0^2) \phi
+    //So the code can compute f S = (4 k_B T / pi) \phi (U/F0^2)
     //I can put in effective loss angles \phi for different materials: 
     //Fused silica, Tantalum, and AlGaAs with x=0.92.
     //Note: I used 1=1TPa=1e12 Pa before, so I'm a factor of 1e12 away from SI
@@ -1217,7 +1245,7 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     // Now I'm working almost in SI units, except I 
     //       i) work in units of microns, so lengths are in microns
     //      ii) Pressures are in units of 1e12 Pa.
-    // Let's convert U/(a*a) to SI, then put everything else in SI
+    // Let's convert U/(F0*F0) to SI, then put everything else in SI
     //
     //  The energy density U is 
     //  u ~ Y_{ijkl} S_{ij} S_{kl}. S is dimensionless. 
@@ -1229,7 +1257,7 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     // Let's see: Lovelace+ (2008) Eq. (14e): S_{ij} has units of 
     // \tilde{p} / \mu * k^2, where k has units of 1/length. On the 
     // surface, S_{zz} (Eq. (15d) has the units of (1/lame) * p(r).
-    // For a Gaussian, p(r) = F_0 e^{-r^2/w^2} / (\pi w^2).
+    // For a Gaussian, p(r) = F_0 e^{-r^2/r0^2} / (\pi r0^2).
     // So my S_{ij} really has units of (Fo / micron^2) * (1/lame).
     // Let's say Fo is in code units, or 1=1e12 N. Then my Lame coefficients
     // are in units of TPa or 1e12 N / m^2 = 1e12 J / m^3. So then
@@ -1239,7 +1267,7 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     // [1e24] * Y.
     //
     // So U has the same units as Y but must be multiplied by 1e24.
-    // Y_Iso and Y_IsoTa2O5 have units of lame_lambda, lame_mu
+    // Y_Iso_FusedSilica and Y_IsoTa2O5 have units of lame_lambda, lame_mu
     // Units of lame parameters: they are given in units of TPa = 1e12 N/m^2
     // = 1e12 J/m^3 * (m/1e6 micron)^3 = 1e-6 J/micron^3.
     // Then I do a volume integral, effectively turning u into an energy U,
@@ -1248,10 +1276,10 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     // 
     // Then, I divide by Fo^2. Fo is in "code units", which means 1 = 1e12 N.
     // So I should first convert Fo into Newtons by multiplying by 1e12.
-    // So U/a^2 has units [1e18 J][1e12 N]^{-2} = 1e-6 m/N.
+    // So U/F0^2 has units [1e18 J][1e12 N]^{-2} = 1e-6 m/N.
     // So the total power spectral density has units (N m/Hz)(N m)/(N^2) = 
-    // m^2/Hz, as expected. So U/a^2 * 1e-6 is a quantity in meters/Newton. 
-    // So U/a^2 has units 1e-6 m/N and is now in SI. Multiplty by 4kT/pi
+    // m^2/Hz, as expected. So U/F0^2 * 1e-6 is a quantity in meters/Newton. 
+    // So U/F0^2 has units 1e-6 m/N and is now in SI. Multiplty by 4kT/pi
     // in SI units to get a quantity that is in units of m^2. Divide by 
     // frequency to get m^2/Hz. Take sqrt to get m/sqrt(Hz). OR:
     // optionally, multiply by 4/L^2, where L is in m,
@@ -1268,7 +1296,7 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
                                                               // /m^2
 
     const double subNoiseTimesf = 
-      toSI * fourKbToverPi * substrateEnergy * lossPhi;
+      toSI * fourKbToverPi * substrateEnergy * lossPhi_Iso;
     const double coatNoiseTimesf = 
       //toSI * fourKbToverPi * coatingEnergy * lossPhiAlGaAsx92;
       //Use same loss angle for coating whether crystal or effective isotropic
@@ -1311,7 +1339,7 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 	eOut << "# [6] coating amp noise (m/sqrt(Hz)) * sqrt(f)" << std::endl;
 	eOut << "# [7] total amp noise (m/sqrt(Hz)) * sqrt(f)" << std::endl;
       }
-      eOut << std::setprecision(18);
+      eOut << std::setprecision(15);
       eOut << cycle << " " << energy << " " 
 	   << substrateEnergy << " " << coatingEnergy << " "
 	   << subAmpNoiseTimesSqrtf << " " << coatAmpNoiseTimesSqrtf << " " 
@@ -1327,7 +1355,7 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
   template <int dim>
   void ElasticProblem<dim>::run ()
   {
-    for (unsigned int cycle=0; cycle<20; ++cycle)
+    for (unsigned int cycle=0; cycle<3; ++cycle)
       {
         pcout << "Cycle " << cycle << ':' << std::endl;
 	pcout << "Time: " << currentDateTime() << std::endl;
@@ -1447,8 +1475,8 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 		  }
 		  vertexRad = sqrt(vertexRad);
 		  //		  if (fabs(vertexDist) < 10.*d
-		  if (fabs(vertexDist) < w
-		      && vertexRad < (refineByDIts-j)*w) {
+		  if (fabs(vertexDist) < r0
+		      && vertexRad < (refineByDIts-j)*r0) {
 		    cell->set_refine_flag();
 		    break;
 		  }
@@ -1573,7 +1601,7 @@ int main (int argc, char **argv)
   try
     {
       using namespace dealii;
-      using namespace ElastostaticMirror;
+      using namespace QuasistaticBrownianThermalNoise;
 
       Utilities::MPI::MPI_InitFinalize mpi_initialization(argc, argv, 1);
 
