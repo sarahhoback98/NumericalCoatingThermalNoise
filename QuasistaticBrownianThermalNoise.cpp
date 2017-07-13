@@ -156,7 +156,7 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
   class ElasticProblem
   {
   public:
-    ElasticProblem (); //sets constants mirrorSize,outFac,r0,a
+    ElasticProblem (); //sets constants innerMirrorSize,outFac,r0,a
     ~ElasticProblem ();
     void run ();
 
@@ -212,14 +212,14 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     double r0, F0, d;
 
     //Loss angles for each built-in material
-    // lossPhi_Iso = fused silica
-    // lossPhi_Ta2O5 = Tantalum oxide
+    // lossPhi_Iso_FusedSilica = fused silica
+    // lossPhi_Iso_Ta2O5 = Tantalum oxide
     // lossAlGaAsx92 = x=0.92 AlGaAs
     // lossPhiAlGasIso = loss angle when using effective isotropic AlGaAs
-    double lossPhi_Iso, lossPhi_Ta2O5, lossPhiAlGaAsx92, lossPhiAlGaAsIso;
+    double lossPhi_Iso_FusedSilica, lossPhi_Iso_Ta2O5, lossPhi_AlGaAs, lossPhi_Iso_AlGaAs;
 
     //Mirror dimension parameters
-    double               mirrorSize, outFac, rad, halflength;
+    double               innerMirrorSize, outFac, rad, halflength;
 
     //Timing
     TimerOutput                               computing_timer;    
@@ -235,7 +235,7 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
   class NeumannValues :  public Function<dim>
   {
   public:
-    NeumannValues (const double& inR0, const double& inA);
+    NeumannValues (const double& inR0, const double& inF0);
     double r0,F0;
 
     //Return the x,y,z values of the Neumann value at a point
@@ -298,12 +298,8 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     //is at z=0, with the rest of the surface at z<0. So This is 
     //\bar{T}_{zj}. I want only a z pressure, so \bar{T}_{zx}=\bar{T}_{zy}=0/
     //\bar{T}_{zz} is set to a Gaussian centered at the origin.
-   
-    // Note: these are now set in the ElasticProblem constructor
-    //const double a = 1.0; //this is a pressure in units of Young's modulus E
-    //const double r0 = 1.0; //this is a distance in absolute units
-                          //e.g. if mirrorSize = 100, r0=1 is 1% of the 
-                          //mirror size
+
+    //Note: F0, r0 set in constructor
 
     //First, set all values to zero.
     for(unsigned int i=0; i<dim-1; ++i) {
@@ -311,11 +307,9 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     }
 
     //Second, set the z value = \bar{T}_{zz} = a exp[(-x^2-y^2)/r0^2] in 3D
-    //in 2D, set the y value \bar{T}_{yy} = a exp[-(x^2)]/r0^2
     double myValue = 0.0;
     for(unsigned int i=0; i<dim-1; ++i) {
       myValue -= p(i)*p(i);            
-      //std::cout << "p(" << i << ") = " << p(i) << std::endl;
     }
     //std::cout << "myValue: " << myValue << std::endl;
 
@@ -326,6 +320,10 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     //Normalize: e.g. Liu+ Eq. (2): if F0=F0, I'd better divide by pi*r0^2
     myValue /= M_PI * r0 * r0;
 
+    //Set the Neuman value: values(0) = T_zx, values(1) = T_zy, values(2)=Tzz
+    //dim=3, so values(dim-1) = Tzz.
+    //Note: this assumes only the top of the cylinder has a pressure applied
+    //Dirichlet conditions elsewhere.
     values(dim-1) = myValue;
     
   }
@@ -368,6 +366,7 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 
     //Set the right-hand side to zero. Aside from the Neumann condition
     //to be implemented elsewhere, the system is in equilibrium.
+    //This is the RHS of -\nabla_i T_{ij} = 0. 
     for(unsigned int i=0; i<dim; ++i) {
       values(i) = 0.;
     }
@@ -429,7 +428,7 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     // I hereby declare code units so that 1 = 1 TPa for stress tensor
     //                                     1 = beam size for length
 
-    // Intialize beam width w (in same units as mirrorSize) 
+    // Intialize beam width w (in same units as innerMirrorSize) 
     // and beam amplitude a (=F_0, in code units)
     r0 = 176.77669534; //note: our "r0" is r_0 in Liu & Thorne (2000)
                       // 176.7 from Cole+ (2015)
@@ -437,13 +436,13 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 
 
     // Choose the size of the mirror: it's a rectangle with points
-    // low = (-mirrorSize*outFac, -mirrorSize*outFac, -mirrorSize*outFac)
-    // up  = (mirrorSize*outFac, mirrorSize*outFac, 0)
+    // low = (-innerMirrorSize*outFac, -innerMirrorSize*outFac, -innerMirrorSize*outFac)
+    // up  = (innerMirrorSize*outFac, innerMirrorSize*outFac, 0)
     // Later, I will insert a coating above z=0, and move the outer boundary.
     rad = 25000/2.0; //25800.; 
-    mirrorSize = 4.*r0; // this isn't the full size, but is used to help
+    innerMirrorSize = 4.*r0; // this isn't the full size, but is used to help
                        // concentrate points near the spacer
-    outFac = rad / mirrorSize; //so total mirror size is rad
+    outFac = rad / innerMirrorSize; //so total mirror size is rad
                                //diameter of substrate is 25000 micron in 
                                //Cole+ (2013).
 
@@ -460,36 +459,16 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     // For isotropic materials, choose the Lame parameters.
     // Here: Fused Silica (amorphous SiO2)
     // Units: 1 = 1 TPa = 1e12 Pa
-    // E=0.073, nu=0.17...fused silica (E=73 GPa, nu=0.17, 
-    // via accuratus.com/fused.html)
-    // wikipedia's numbers are similar
-
-    //Cole+ 2013 uses 72 Gpa, nu=0.17 for substrate, 100 GPa, nu=0.32 coating
-    //E = Young's modulus, nu = Poisson Ratio, 
+    // e.g. Y=0.073, sigma=0.17...fused silica (E=73 GPa, nu=0.17, 
+    
+    //Cole+ 2013 uses Y=72 Gpa, sigma=0.17 for substrate, 
+    //Y=100 GPa, sigma=0.32 coating
+    //Y = Young's modulus, sigma = Poisson Ratio, 
     //K = bulk modulus, mu = shear modulus
-    //E = 9 mu K / (3K + mu), nu = (3K - 2 mu)/(2(3k+mu)), K=lambda+(2/3)mu
-
-    //lame_lambda_FusedSilica = 0.016071;
-    //lame_mu_FusedSilica     = 0.0311966;
+    //Y = 9 mu K / (3K + mu), sigma = (3K - 2 mu)/(2(3k+mu)), K=lambda+(2/3)mu
 
     lame_lambda_FusedSilica = 0.0158508;
     lame_mu_FusedSilica = 0.0307692;
-
-    // Define some dimensionless loss angles.
-    // lossPhi_Iso = fused silica
-    // lossPhi_Ta2O5 = Tantalum oxide
-    // lossAlGaAsx92 = x=0.92 AlGaAs
-    //lossPhi = 1.e-7; //Chalermsongsak+ (2015) Table I
-    lossPhi_Iso = 1.e-6; //Cole+ (2013)
-    lossPhi_Ta2O5 = 4.e-4; //Yamamoto+ (2006), PRD 74, 022002 (good value??)
-    lossPhiAlGaAsIso = 2.5e-5; //Cole+ (2013)
-    lossPhiAlGaAsx92 = 2.41e-5; //Chalermsongsak+ (2015) Table I
-                             //hope this is ok given this is for a layered
-                             //coating...AlGaAsx92 and GaAs are given
-                             //identical elastic properties, so maybe so
-
-    /* lame_mu_FusedSilica = 0.4273504273504274; Units where E=1 */
-    /* lame_lambda_FusedSilica = 0.2201502201502202; Units where E=1 */
 
     //Set Y_Iso_FusedSilica   
     for(int i=0;i<dim;++i) {
@@ -559,7 +538,7 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     lame_lambda_AlGaAs = 0.0673401;
     lame_mu_AlGaAs     = 0.0378788;
 
-    //Set Y_AlGaAs   
+    //Set Y_Iso_AlGaAs   
     for(int i=0;i<dim;++i) {
       for(int j=0;j<dim;++j) {
 	for(int k=0;k<dim;++k) {
@@ -632,6 +611,18 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     Y_AlGaAs[2][1][1][2] =c44;
     Y_AlGaAs[2][1][2][1] =c44;
 
+    // Define some dimensionless loss angles.
+    // lossPhi_Iso_FusedSilica = fused silica
+    // lossPhi_Iso_Ta2O5 = Tantalum oxide
+    // lossAlGaAsx92 = x=0.92 AlGaAs
+    //lossPhi = 1.e-7; //Chalermsongsak+ (2015) Table I
+    lossPhi_Iso_FusedSilica = 1.e-6; //Cole+ (2013)
+    lossPhi_Iso_Ta2O5 = 4.e-4; //Yamamoto+ (2006), PRD 74, 022002 
+                               // (good value??)
+    lossPhi_Iso_AlGaAs = 2.5e-5; //Cole+ (2013)
+    lossPhi_AlGaAs = lossPhi_Iso_AlGaAs; //use same loss angle from Cole+(2013)
+
+
 
   } //end of ElasticProblem constructor
 
@@ -648,11 +639,10 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
   {
     TimerOutput::Scope t(computing_timer, "setup");   
 
-    // Distribute degrees of freedom (shape functions) and
-    // immediately renumber to partially diagonalize the matrix we will invert.
-    // Note: must renumber immediately since later stuff relies on this choice.
+    // Distribute degrees of freedom (shape functions)
+    // Note: if you want to renumber to partially diagonalize, do that here
+    // (don't think that's necessary)
     dof_handler.distribute_dofs (fe);
-    //DoFRenumbering::subdomain_wise (dof_handler); //renumber in proc order
 
     //locally owned, locally relevant dofs
     locally_owned_dofs = dof_handler.locally_owned_dofs ();
@@ -677,7 +667,7 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     //  +--+--+--+--+
     //  |  |  |  |  |     //The hanging node constraint makes sure 
     //  x--+--x--+--x     //xox is linear. See dealii constraints on DOF
-    //                    //for details.
+    //                    //documentation for details.
 
     //Constraints handle Dirichlet condition and hanging-node constraints
     constraints.clear ();
@@ -693,6 +683,8 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     constraints.close ();
 
     //Initialize the matrix. Use CompressedSimpleSparsityPattern
+    //if you don't yet know the final sparsity pattern, DynamicSparsityPattern
+    //works better than
     //CompressedSimpleSparsityPattern csp (locally_relevant_dofs);
     DynamicSparsityPattern csp (locally_relevant_dofs);
 
@@ -717,13 +709,13 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 
     //Gauss quadrature order n exact for polynomials up to order 2n-1.
 
-    //Here shape functions are either i) linear, so gauss quadrature order 2 good enough
+    //Here shape functions are either i) linear, so gauss quad. order 2 OK
     //for 2*2-1 = cubic. Worst case is square of function, i.e. quadratic, or
     //ii) quadratic, so gauss quadrature order 3 good enough 
     //for 3*3-1 = 8, while worst case is square of function, i.e. quartic.
 
     // Have to use sufficiently accurate quadrature formula. In addition, we
-    // need to compute integrals over faces, i.e. 2D objects.
+    // need to compute integrals over faces, i.e. 2D (dim-1) objects.
     QGauss<dim>  quadrature_formula(3);
     QGauss<dim-1> face_quadrature_formula(3);
 
@@ -1296,11 +1288,11 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
                                                               // /m^2
 
     const double subNoiseTimesf = 
-      toSI * fourKbToverPi * substrateEnergy * lossPhi_Iso;
+      toSI * fourKbToverPi * substrateEnergy * lossPhi_Iso_FusedSilica;
     const double coatNoiseTimesf = 
-      //toSI * fourKbToverPi * coatingEnergy * lossPhiAlGaAsx92;
+      //toSI * fourKbToverPi * coatingEnergy * lossPhi_AlGaAs;
       //Use same loss angle for coating whether crystal or effective isotropic
-      toSI * fourKbToverPi * coatingEnergy * lossPhiAlGaAsIso;
+      toSI * fourKbToverPi * coatingEnergy * lossPhi_Iso_AlGaAs;
     const double totalNoiseTimesf = subNoiseTimesf + coatNoiseTimesf;
 
     const double subAmpNoiseTimesSqrtf = sqrt(subNoiseTimesf);
@@ -1369,15 +1361,15 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 
 	    //the main mesh: possibly surround with more rectangles
 
-	    //outFac and mirrorSize now set in ElasticProblem constructor
+	    //outFac and innerMirrorSize now set in ElasticProblem constructor
  	    //double outFac = 10.; //factor for enlarging the grid
-	    //const double mirrorSize = 100.; //base size for refinement
+	    //const double innerMirrorSize = 100.; //base size for refinement
 
 	    //Point<dim> low(true);
 	    //Point<dim> up(true);
 	    //for(unsigned int i=0; i<dim; ++i) {
-	    //  low(i) = -1.*mirrorSize*outFac;
-	    //  up(i) = 1.*mirrorSize*outFac;
+	    //  low(i) = -1.*innerMirrorSize*outFac;
+	    //  up(i) = 1.*innerMirrorSize*outFac;
 	    //}
 	    //up(dim-1) = 0.;
 	    //up(dim-1) = d; //coating of thickness d begins at z=0
