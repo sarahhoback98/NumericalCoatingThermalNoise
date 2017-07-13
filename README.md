@@ -40,15 +40,15 @@ The relevant parameters are set in ElasticProblem::ElasticProblem().
 
 Starting on line 465, you can choose the following:
 
-  mTKOutput = save vtk data for making 3D images (e.g. via paraview)?
-  mNumberOfCycles = numer of resolutions ("cycles", ~13 is a good choice)
-  mWhichCoatingYijkl = coating material (choose from those coded)
-  mWhichSubstrateYijkl = substrate material (choose from those coded)
-  r0 = beam width
-  F0 = amplidude of applied pressure (should not affect results)
-  rad = radius of cylindrical mirror
-  d = coating thickness
-  halflength = half of cylinder length along axis
+  - mTKOutput = save vtk data for making 3D images (e.g. via paraview)?
+  - mNumberOfCycles = numer of resolutions ("cycles", ~13 is a good choice)
+  - mWhichCoatingYijkl = coating material (choose from those coded)
+  - mWhichSubstrateYijkl = substrate material (choose from those coded)
+  - r0 = beam width
+  - F0 = amplidude of applied pressure (should not affect results)
+  - rad = radius of cylindrical mirror
+  - d = coating thickness
+  - halflength = half of cylinder length along axis
   
 Additionally, you might wish to change the temperature from 300K, which is set
 on line 1321 in a variable called T. (Search for T = 300) to find the line.
