@@ -92,6 +92,11 @@ namespace LA
 #include <typeinfo> //get type of pointer, used in looping over cells
 
 //****************************************************************//  
+// enumerate different available Yijkl
+//****************************************************************//  
+enum material { kAlGaAs, kIso_AlGaAs, kIso_Ta2O5, kIso_FusedSilica };
+
+//****************************************************************//  
 // Date and Time Function         
 //****************************************************************//   
 // Return the current date and time as an array of characters
@@ -224,8 +229,14 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     //Timing
     TimerOutput                               computing_timer;    
 
+    //Other options
     bool mVTKOutput;
     unsigned int mNumberOfCycles;
+    int mWhichCoatingYijkl;
+    int mWhichSubstrateYijkl;
+
+    double getYijkl(int whichYijkl, unsigned int i, 
+		    unsigned int j, unsigned int k, unsigned int l);
   };
 
   //****************************************************************//
@@ -398,6 +409,30 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
   //****************************************************************//
   // ElasticProblem implementation
   //****************************************************************//
+  template <int dim> double
+  ElasticProblem<dim>::getYijkl(int whichYijkl, unsigned int i, 
+				unsigned int j, unsigned int k, 
+				unsigned int l) {
+    //Choices are 
+    //kAlGaAs #crystal, x=0.92
+    //kIso_AlGaAs #effective isotropic approx to x=0.92 AlGaAs
+    //kIso_Ta2O5 #tantalum
+    //kIso_FusedSilica #fused silica
+    switch(whichYijkl) {
+    case(kAlGaAs): 
+      return Y_AlGaAs[i][j][k][l];
+    case(kIso_AlGaAs): 
+      return Y_Iso_AlGaAs[i][j][k][l];
+    case(kIso_Ta2O5):
+      return Y_Iso_Ta2O5[i][j][k][l];
+    case(kIso_FusedSilica):
+      return Y_Iso_FusedSilica[i][j][k][l];
+    default:
+      std::cout << "WARNING! Invalid Yijkl string. Do not trust results!\n";
+      break;
+    }
+    return 0.0;
+  }
 
   template <int dim>
   ElasticProblem<dim>::ElasticProblem ()
@@ -432,6 +467,15 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 
   {
 
+    //Choose which Yijkl to use for substrate and which to use for coating
+    //Choices are 
+    //kAlGaAs #crystal, x=0.92
+    //kIso_AlGaAs #effective isotropic approx to x=0.92 AlGaAs
+    //kIso_Ta2O5 #tantalum
+    //kIso_FusedSilica #fused silica
+    mWhichCoatingYijkl = kAlGaAs;
+    mWhichSubstrateYijkl = kIso_FusedSilica;
+
     // I hereby declare code units so that 1 = 1 TPa for stress tensor
     //                                     1 = beam size for length
 
@@ -463,6 +507,10 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     //halflength = rad/8.+d/2.; //0.25 in + coating = total thickness
     halflength = rad/2.+d/2.; //1.0 in + coating = total thickness
 
+    
+
+    //nothing below should need changing for different runs
+   
 
     // For isotropic materials, choose the Lame parameters.
     // Here: Fused Silica (amorphous SiO2)
@@ -810,18 +858,19 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 
 		  // First, choose Yijkl. In principle, this could depend on 
 		  // the location of the quadrature point. But for now,
-		  // just use a single Yijkl tensor.
+		  // just use a single Yijkl tensor in coat, single in sub.
 		  
-		  //isotropic substrate:
-		  //Yijkl = Y_Iso_FusedSilica[i][component_A][k][component_B];
-
-		  // AlGaAs coating, fused silica substrate
+		  // E.g. AlGaAs coating, fused silica substrate
 		  // find the quadrature point. If z > 0, it's in the coating.
 		  // Otherwise, it's in the substrate.
 		  if(fe_values.quadrature_point(q_point)(dim-1) > 0.) {
-		    Yijkl = Y_AlGaAs[i][component_A][k][component_B];
+		    Yijkl = 
+		      getYijkl(mWhichCoatingYijkl,i,component_A,
+			       k,component_B);
 		  } else {
-		    Yijkl = Y_Iso_FusedSilica[i][component_A][k][component_B];
+		    Yijkl = 
+		      getYijkl(mWhichSubstrateYijkl,i,component_A,
+			       k,component_B);
 		  }
 
 		  // Now, the matrix element picks up a term 
@@ -1158,17 +1207,6 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 	      for(int k=0;k<dim;++k) {
 		for(int l=0;l<dim;++l) {
 
-		// Set Yijkl...here, set it to Y_Iso_FusedSilica, an isotropic tensor,
-		// a member variable of ElasticProblem.
-		// Note: in principle, choose a Y based on position of 
-		// q_point.
-
-		//Isotropic substrate
-		//theYijkl = Y_Iso_FusedSilica[i][j][k][l];
-
-		//AlGaAs coating, fused silica substrate
-		//theYijkl = Y[i][j][k][l] in coating, Y_Iso_FusedSilica in substrate;
-
 		  local_thisEnergy =
 		    0.5 
 		    * fe_values.JxW(q_point)
@@ -1176,11 +1214,11 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 		    * solution_gradients[q_point][l][k];		    
 
 		if(fe_values.quadrature_point(q_point)(dim-1) > 0.) {
-		  theYijkl = Y_AlGaAs[i][j][k][l];
+		  theYijkl = getYijkl(mWhichCoatingYijkl,i,j,k,l);
 		  local_thisEnergy *= theYijkl;
 		  local_coatingEnergy += local_thisEnergy;
 		} else {
-		  theYijkl = Y_Iso_FusedSilica[i][j][k][l];
+		  theYijkl = getYijkl(mWhichSubstrateYijkl,i,j,k,l);
 		  local_thisEnergy *= theYijkl;
 		  local_substrateEnergy += local_thisEnergy;
 		}
