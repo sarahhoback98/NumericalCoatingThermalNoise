@@ -41,7 +41,7 @@ The relevant parameters are set in ElasticProblem::ElasticProblem().
 Starting on line 465, you can choose the following:
 
   mTKOutput = save vtk data for making 3D images (e.g. via paraview)?
-  mNumberOfCycles = numer of resolutions ("cycles")
+  mNumberOfCycles = numer of resolutions ("cycles", ~13 is a good choice)
   mWhichCoatingYijkl = coating material (choose from those coded)
   mWhichSubstrateYijkl = substrate material (choose from those coded)
   r0 = beam width
@@ -63,4 +63,17 @@ just under the last #include
 3. Define Y_NAME in the ElasticProblem constructor. (i.e. Yijkl)
 4. Define lossPhi_NAME in the ElasticProblem constructor (i.e. the loss angle).
 
+
+QuasistaticBrownianThermalNoise_Paper.cpp
+============================================
+
+For completeness, this is the version of the code used in https://dcc.ligo.org/LIGO-P1700183. This version is not as polished but gives equivalent results.
+
+Testing
+============================================
+A sample output is ExampleEnergy.dat. Build and run QuasistaticBrownianThermalNoise.cpp without 
+changing any code, and this should be your output.
+
+QUESTIONS
+===========================================
 Please send questions to glovelace at fullerton dot edu.
