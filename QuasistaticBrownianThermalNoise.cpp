@@ -16,6 +16,8 @@
 
  *
  * Author: Geoffrey Lovelace, Cal State Fullerton, 2017
+ * https://arxiv.org/abs/1707.07774
+ * https://dcc.ligo.org/LIGO-P1700183
  *
  * This code has been tested with deal.ii v8.2.1.
  */
@@ -296,7 +298,8 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     F0(inF0)
   {}
 
-  // P1700183 Eq. (31) third integrand, Eq. (25), etc. Tjz = -F p(r)
+  // arXiv:1707.07774 Eq. (33) third integrand, Eq. (27), etc. Tzz = -F p(r), 
+  // Txz=Tyz=0
   template <int dim>
   inline
   void NeumannValues<dim>::vector_value (const Point<dim> &p,
@@ -381,8 +384,8 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 
     //Set the right-hand side to zero. Aside from the Neumann condition
     //to be implemented elsewhere, the system is in equilibrium.
-    //This is the RHS of -\nabla_i T_{ij} = 0. (cf. P1700183 Eq. (23)
-    //and second integrand in P1700183 Eq. (31))
+    //This is the RHS of -\nabla_i T_{ij} = 0. (cf. arXiv:1707.07774 Eq. (25)
+    //and second integrand in arXiv:1707.07774 Eq. (33))
     for(unsigned int i=0; i<dim; ++i) {
       values(i) = 0.;
     }
@@ -482,9 +485,9 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     // Intialize beam width w (in same units as innerMirrorSize) 
     // and beam amplitude a (=F_0, in code units)
     r0 = 176.77669534; //note: our "r0" is r_0 in Liu & Thorne (2000)
-                       //cf. P1700183 Eq. (4)   
+                       //cf. arXiv:1707.07774 Eq. (4)   
                        // 176.7 from Cole+ (2013)
-    F0 = 0.001;
+    F0 = 0.001; //final result should not depend on this
 
 
     // Choose the size of the mirror: it's a rectangle with points
@@ -838,8 +841,8 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 	// M_{AB} = Y_{icomp(A)kcomp(B)} \Phi_{Acomp(A);i} \Phi_{Bcomp(B);k}
 	// so I only must sum over i and k.
 	//       
-	// Eq. (31) of P1700183: integrand of first integral
-	// Eq. (39) of P1700183
+	// Eq. (38) of arXiv:1707.07774: integrand of first integral
+	// Eq. (39) of arXiv:1707.07774
 
 	//DOF loops
 	for (unsigned int A=0; A<dofs_per_cell; ++A) {
