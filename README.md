@@ -1,9 +1,9 @@
 ABOUT THIS REPO
 =====================
 
-This respository holds C++ code that numerically computes Brownian coating and substrate thermal noise for amorphic and crystalline materials. Results from this code are presented in https://dcc.ligo.org/LIGO-P1700183.
+This respository holds C++ code that numerically computes Brownian coating and substrate thermal noise for amorphic and crystalline materials. Results from this code are presented in https://doi.org/10.1088/1361-6382/aa9ccc.
 
-If you make use of this code, please cite technical report https://dcc.ligo.org/LIGO-P1700183.
+If you make use of this code, please cite technical report https://doi.org/10.1088/1361-6382/aa9ccc.
 
 The primary requirement for compiling and running this code is the deal.II framework (http://www.dealii.org). It also requires petsc, and you'll need MPI to run on multiple processors.
 
