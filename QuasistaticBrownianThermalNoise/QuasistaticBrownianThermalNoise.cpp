@@ -98,6 +98,8 @@ namespace LA
 //****************************************************************//  
 enum material { kAlGaAs, kIso_AlGaAs, kIso_Ta2O5, kIso_FusedSilica };
 
+enum profiles { TEM00, TEM02, TEM20, TEM02minus20 };
+
 //****************************************************************//  
 // Date and Time Function         
 //****************************************************************//   
@@ -226,7 +228,7 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     double lossPhi_Iso_FusedSilica, lossPhi_Iso_Ta2O5, lossPhi_AlGaAs, lossPhi_Iso_AlGaAs;
 
     //Mirror dimension parameters
-    double               innerMirrorSize, outFac, rad, halflength;
+    double               innerMirrorSize, outFac, rad, substrateheight, halflength;
 
     //Timing
     TimerOutput                               computing_timer;    
@@ -333,15 +335,42 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 
     //The negative sign here is because Tzj should point in the -z 
     //direction, so the mirror is compressed, not stretched.
-    myValue = -1.0 * F0 * exp(myValue/(r0*r0));
+    //myValue = -1.0 * F0 * exp(myValue/(r0*r0));
+    //myValue = -1.0 * F0 * exp(myValue/(r0*r0)) * ((4*p(1)*p(1)/(r0*r0)-2)*(4*p(1)*p(1)/(r0*r0)-2)-(4*p(0)*p(0)/(r0*r0)-2)*(4*p(0)*p(0)/(r0*r0)-2));
 
     //Normalize: e.g. Liu+ Eq. (2): if F0=F0, I'd better divide by pi*r0^2
-    myValue /= M_PI * r0 * r0;
+    //myValue /= M_PI * r0 * r0;
+    //myValue /= 8 * M_PI * r0 * r0;
 
     //Set the Neuman value: values(0) = T_zx, values(1) = T_zy, values(2)=Tzz
     //dim=3, so values(dim-1) = Tzz.
     //Note: this assumes only the top of the cylinder has a pressure applied
     //Dirichlet conditions elsewhere.
+
+    int mWhichProfile = TEM00;
+
+    switch(mWhichProfile) {
+    case(TEM00):
+      myValue = -1.0 * F0 * exp(myValue/(r0*r0));
+      myValue /= M_PI * r0 * r0;
+      break;
+    case(TEM02):
+      myValue = -1.0 * F0 * exp(myValue/(r0*r0)) * (4*p(1)*p(1)/(r0*r0)-2)*(4*p(1)*p(1)/(r0*r0)-2);
+      myValue /= 8 * M_PI * r0 * r0;
+      break;
+    case(TEM20):
+      myValue = -1.0 * F0 * exp(myValue/(r0*r0)) * (4*p(0)*p(0)/(r0*r0)-2)*(4*p(0)*p(0)/(r0*r0)-2);
+      myValue /= 8 * M_PI * r0 * r0;
+      break;
+    case(TEM02minus20):
+      myValue = -1.0 * F0 * exp(myValue/(r0*r0)) * ((4*p(1)*p(1)/(r0*r0)-2)*(4*p(1)*p(1)/(r0*r0)-2)-(4*p(0)*p(0)/(r0*r0)-2)*(4*p(0)*p(0)/(r0*r0)-2));
+      myValue /= 8 * M_PI * r0 * r0;
+      break;
+    default:
+      std::cout << "WARNING! Invalid profile string. Do not trust results!\n";
+      break;
+    }
+
     values(dim-1) = myValue;
     
   }
@@ -505,10 +534,12 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
               //6.83 micron: Cole+ 2013
               //4.68 based on Table I of Chalermsongsak+ (2015)
               //earlier versions of this code used 4.68
+      
+    substrateheight = 25000/2.0;
 
 
     //halflength = rad/8.+d/2.; //0.25 in + coating = total thickness
-    halflength = rad/2.+d/2.; //1.0 in + coating = total thickness
+    halflength = substrateheight/2.+d/2.; //1.0 in + coating = total thickness
 
     
     ////////////////////////////////////////////////////////
@@ -1326,12 +1357,51 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     
     const double toSI = 1.e-6; //gives noise in m/sqrt(Hz)
 
+    double subLossAngle = 0.;
+    double coatLossAngle = 0.;
+
+    switch(mWhichSubstrateYijkl) {
+        case(kAlGaAs):
+            subLossAngle = lossPhi_AlGaAs;
+            break;
+        case(kIso_AlGaAs):
+            subLossAngle = lossPhi_Iso_AlGaAs;
+            break;
+        case(kIso_Ta2O5):
+            subLossAngle = lossPhi_Iso_Ta2O5;
+            break;
+        case(kIso_FusedSilica):
+            subLossAngle = lossPhi_Iso_FusedSilica;
+            break;
+        default:
+            std::cout << "WARNING! Invalid Yijkl string. Do not trust results!\n";
+            break;
+    }
+        
+    switch(mWhichCoatingYijkl) {
+        case(kAlGaAs):
+            coatLossAngle = lossPhi_AlGaAs;
+            break;
+        case(kIso_AlGaAs):
+            coatLossAngle = lossPhi_Iso_AlGaAs;
+            break;
+        case(kIso_Ta2O5):
+            coatLossAngle = lossPhi_Iso_Ta2O5;
+            break;
+        case(kIso_FusedSilica):
+            coatLossAngle = lossPhi_Iso_FusedSilica;
+            break;
+        default:
+            std::cout << "WARNING! Invalid Yijkl string. Do not trust results!\n";
+            break;
+    }
+
     const double subNoiseTimesf = 
-      toSI * fourKbToverPi * substrateEnergy * lossPhi_Iso_FusedSilica;
+      toSI * fourKbToverPi * substrateEnergy * subLossAngle;
     const double coatNoiseTimesf = 
       //toSI * fourKbToverPi * coatingEnergy * lossPhi_AlGaAs;
       //Use same loss angle for coating whether crystal or effective isotropic
-      toSI * fourKbToverPi * coatingEnergy * lossPhi_Iso_AlGaAs;
+      toSI * fourKbToverPi * coatingEnergy * coatLossAngle;
     const double totalNoiseTimesf = subNoiseTimesf + coatNoiseTimesf;
 
     const double subAmpNoiseTimesSqrtf = sqrt(subNoiseTimesf);
