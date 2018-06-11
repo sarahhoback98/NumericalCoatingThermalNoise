@@ -335,17 +335,7 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 
     //The negative sign here is because Tzj should point in the -z 
     //direction, so the mirror is compressed, not stretched.
-    //myValue = -1.0 * F0 * exp(myValue/(r0*r0));
-    //myValue = -1.0 * F0 * exp(myValue/(r0*r0)) * ((4*p(1)*p(1)/(r0*r0)-2)*(4*p(1)*p(1)/(r0*r0)-2)-(4*p(0)*p(0)/(r0*r0)-2)*(4*p(0)*p(0)/(r0*r0)-2));
-
     //Normalize: e.g. Liu+ Eq. (2): if F0=F0, I'd better divide by pi*r0^2
-    //myValue /= M_PI * r0 * r0;
-    //myValue /= 8 * M_PI * r0 * r0;
-
-    //Set the Neuman value: values(0) = T_zx, values(1) = T_zy, values(2)=Tzz
-    //dim=3, so values(dim-1) = Tzz.
-    //Note: this assumes only the top of the cylinder has a pressure applied
-    //Dirichlet conditions elsewhere.
 
     int mWhichProfile = TEM00;
 
@@ -371,6 +361,11 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
       break;
     }
 
+    //Set the Neuman value: values(0) = T_zx, values(1) = T_zy, values(2)=Tzz
+    //dim=3, so values(dim-1) = Tzz.
+    //Note: this assumes only the top of the cylinder has a pressure applied
+    //Dirichlet conditions elsewhere.
+	  
     values(dim-1) = myValue;
     
   }
