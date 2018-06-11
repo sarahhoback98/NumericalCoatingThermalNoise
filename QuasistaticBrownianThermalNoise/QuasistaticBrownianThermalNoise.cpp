@@ -345,16 +345,16 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
       myValue /= M_PI * r0 * r0;
       break;
     case(TEM02):
-      myValue = -1.0 * F0 * exp(myValue/(r0*r0)) * (4*p(1)*p(1)/(r0*r0)-2)*(4*p(1)*p(1)/(r0*r0)-2);
-      myValue /= 8 * M_PI * r0 * r0;
+      myValue = -1.0 * F0 * exp(myValue/(r0*r0)) * (4.0*p(1)*p(1)/(r0*r0)-2.0)*(4.0*p(1)*p(1)/(r0*r0)-2.0);
+      myValue /= 8.0 * M_PI * r0 * r0;
       break;
     case(TEM20):
-      myValue = -1.0 * F0 * exp(myValue/(r0*r0)) * (4*p(0)*p(0)/(r0*r0)-2)*(4*p(0)*p(0)/(r0*r0)-2);
-      myValue /= 8 * M_PI * r0 * r0;
+      myValue = -1.0 * F0 * exp(myValue/(r0*r0)) * (4.0*p(0)*p(0)/(r0*r0)-2.0)*(4.0*p(0)*p(0)/(r0*r0)-2.0);
+      myValue /= 8.0 * M_PI * r0 * r0;
       break;
     case(TEM02minus20):
-      myValue = -1.0 * F0 * exp(myValue/(r0*r0)) * ((4*p(1)*p(1)/(r0*r0)-2)*(4*p(1)*p(1)/(r0*r0)-2)-(4*p(0)*p(0)/(r0*r0)-2)*(4*p(0)*p(0)/(r0*r0)-2));
-      myValue /= 8 * M_PI * r0 * r0;
+      myValue = -1.0 * F0 * exp(myValue/(r0*r0)) * ((4.0*p(1)*p(1)/(r0*r0)-2.0)*(4.0*p(1)*p(1)/(r0*r0)-2.0)-(4.0*p(0)*p(0)/(r0*r0)-2.0)*(4.0*p(0)*p(0)/(r0*r0)-2.0));
+      myValue /= 8.0 * M_PI * r0 * r0;
       break;
     default:
       std::cout << "WARNING! Invalid profile string. Do not trust results!\n";
@@ -530,7 +530,7 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
               //4.68 based on Table I of Chalermsongsak+ (2015)
               //earlier versions of this code used 4.68
       
-    substrateheight = 25000/2.0;
+    substrateheight = 25000.0/2.0;
 
 
     //halflength = rad/8.+d/2.; //0.25 in + coating = total thickness
