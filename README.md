@@ -16,25 +16,50 @@ Meanwhile, once you have installed deal.ii (dealii.org) and petsc (petsc.org) wi
 
 I recommend first ensuring that you can build and run the deal.II tutorials step-3 (Laplace equation), step-8 (2D elastic equations), and step-17 (petsc + MPI Laplace equation).
 
-To run the code, e.g., do this:
+You'll need to install the following dependencies:
+  * [yaml-cpp](https://github.com/jbeder/yaml-cpp)
+  
+To build yaml-cpp, you can do this:
+```
+git clone https://github.com/jbeder/yaml-cpp
+cd yaml-cpp
+git checkout yaml-cpp-0.6.2
+mkdir -p ~/Codes/yaml/0.6.2
+mkdir build
+cd build
+cmake -DCMAKE_INSTALL_PREFIX=${HOME}/Codes/yaml/0.6.2 ..
+make
+ctest
+make install
+```
 
+To build and run the thermal noise code, e.g., do this:
+
+```
 cd /path/to/QuasistaticBrownianThermalNoise.cpp
+mkdir build
+cd build
 
-cmake .
+cmake -DYAMLCPP_ROOT=/path/to/yamlcpp ..
 
 make release #or just "make"...if a debug version of dealii is 
              #installed, make release avoids it
+```
 
+Then, after editing `config.yaml`, run the code with, e.g.,
+
+```
 mpirun -np 12 QuasistaticBrownianThermalNoise.cpp #run on 12 cores
-
+```
 
 To run on a cluster, you might use a batch submission script; an example 
 script is provided.
 
 CHOOSING THE PHYSICS
 =====================
-Currently, you must edit the source code to change the physics 
-(e.g., different material, different mirror dimensions, etc.) 
+Currently, you must edit the source code to change most of the physics 
+(e.g., different material, different mirror dimensions, etc.) However, these settings 
+will move to the input file `config.yaml.`
 
 The relevant parameters are set in ElasticProblem::ElasticProblem().
 

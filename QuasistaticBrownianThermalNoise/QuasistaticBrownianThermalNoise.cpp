@@ -93,6 +93,9 @@ namespace LA
 
 #include <typeinfo> //get type of pointer, used in looping over cells
 
+//Support for yaml reading a configuration file
+#include <yaml-cpp/yaml.h>
+
 //****************************************************************//  
 // Enumerate different available Yijkl
 //****************************************************************//  
@@ -170,6 +173,7 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     void run ();
 
   private:
+    void parse_config_file();
     void setup_system ();
     void assemble_system ();
     unsigned int solve ();
@@ -201,6 +205,9 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 
 
     ConditionalOStream pcout; //Output stream that only prints on proc0
+
+    // Beam profile
+    int beam_profile;
 
     //Built-in Young's tensors
     //Y_Iso_FusedSilica = fused silica
@@ -253,8 +260,9 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
   class NeumannValues :  public Function<dim>
   {
   public:
-    NeumannValues (const double& inR0, const double& inF0);
+    NeumannValues (const double& inR0, const double& inF0, const int& in_beam_profile);
     double r0,F0;
+    int beam_profile;
 
     //Return the x,y,z values of the Neumann value at a point
     virtual void vector_value (const Point<dim> &p,
@@ -293,11 +301,12 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
   //components (dim=3).
 
   template <int dim>
-  NeumannValues<dim>::NeumannValues (const double& inR0, const double& inF0)
+  NeumannValues<dim>::NeumannValues (const double& inR0, const double& inF0, const int& in_beam_profile)
     :
     Function<dim> (dim),
     r0(inR0),
-    F0(inF0)
+    F0(inF0),
+    beam_profile(in_beam_profile)
   {}
 
   // arXiv:1707.07774 Eq. (33) third integrand, Eq. (27), etc. Tzz = -F p(r), 
@@ -336,10 +345,7 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     //The negative sign here is because Tzj should point in the -z 
     //direction, so the mirror is compressed, not stretched.
     //Normalize: e.g. Liu+ Eq. (2): if F0=F0, I'd better divide by pi*r0^2
-
-    int mWhichProfile = TEM00;
-
-    switch(mWhichProfile) {
+    switch(beam_profile) {
     case(TEM00):
       myValue = -1.0 * F0 * exp(myValue/(r0*r0));
       myValue /= M_PI * r0 * r0;
@@ -462,6 +468,29 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
   }
 
   template <int dim>
+  void ElasticProblem<dim>::parse_config_file() {
+    YAML::Node config = YAML::LoadFile("config.yaml");
+
+    const std::string beam_profile_string = config["BeamProfile"].as<std::string>();
+    if (beam_profile_string == "TEM00") {
+        beam_profile = TEM00;
+    } else if (beam_profile_string == "TEM02") {
+        beam_profile = TEM02;
+    } else if (beam_profile_string == "TEM20") {
+        beam_profile = TEM20;
+    } else if (beam_profile_string == "TEM02minus20") {
+        beam_profile = TEM02minus20;
+    } else {
+        std::cout << "ERROR: Invalid BeamProfile in config.yaml\n\n";
+        exit(-1);
+    }
+
+    std::cout << "Beam profile: " << beam_profile
+              << " (" << config["BeamProfile"].as<std::string>() << ")\n";
+    exit(0);
+  }
+
+  template <int dim>
   ElasticProblem<dim>::ElasticProblem ()
     :
     mpi_communicator (MPI_COMM_WORLD), //MPI_COMM_WORLD=all procs available
@@ -493,6 +522,9 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     mNumberOfCycles(3) // resolutions to do: 0,1,...mNumberOfCycles - 1
 
   {
+    // Parse input file
+    parse_config_file();
+
 
     //Choose which Yijkl to use for substrate and which to use for coating
     //Choices are 
@@ -834,7 +866,7 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     // The Neumann values are set up the same way as the right hand side,
     // except that we pass in the beam size and amplitude.
     // We don't precompute them here. Instead, we get them on the faces later.
-    NeumannValues<dim>      neumann(r0,F0);
+    NeumannValues<dim>      neumann(r0,F0,beam_profile);
 
     // Now we can begin with the loop over all cells:
     typename DoFHandler<dim>::active_cell_iterator 
