@@ -30,8 +30,11 @@ Mirror:
 Resolution:
   # Refine the mesh each iteration, for Cycles iterations total. Higher
   # Cycles means run to higher resolution.
-  Cycles: 3
+  Cycles: 1
 
   # Iterations for quadruature. Too small a value makes the integral of the
   # coating potential energy (and thus the coating thermal noise) inaccurate.
   QuadratureIterations: 10
+
+# Run tests, instead of getting and outputting the solution?
+RunTests: True

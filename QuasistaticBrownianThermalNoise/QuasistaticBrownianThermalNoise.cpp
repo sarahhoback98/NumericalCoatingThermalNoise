@@ -87,6 +87,7 @@ namespace LA
 #include <iomanip>
 #include <cmath>
 #include <map>
+#include <vector>
 
 //Support for reading in grids in potential future versions
 #include <deal.II/grid/grid_in.h>
@@ -96,6 +97,8 @@ namespace LA
 
 //Support for yaml reading a configuration file
 #include <yaml-cpp/yaml.h>
+#define CATCH_CONFIG_RUNNER
+#include <catch2/catch.h>
 
 //****************************************************************//  
 // Enumerate different available Yijkl
@@ -183,6 +186,8 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
   public:
     ElasticProblem (); //sets constants innerMirrorSize,outFac,r0,a
     ~ElasticProblem ();
+    YAML::Node get_config() {return config;};
+    std::vector<std::map<std::string, double>> get_results() {return results;};
     void run ();
 
   private:
@@ -219,8 +224,9 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 
     ConditionalOStream pcout; //Output stream that only prints on proc0
 
-    // For options
+    // For options and tests
     YAML::Node config;
+    std::vector<std::map<std::string, double>> results;
 
     // Beam profile
     int beam_profile;
@@ -487,9 +493,7 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
   void ElasticProblem<dim>::parse_config_file() {
     config = YAML::LoadFile("config.yaml");
 
-    beam_profile = 0;
-    std::cout << "Beam profile: " << beam_profile
-              << " (" << config["LaserBeam"]["Profile"] << ")\n";
+    beam_profile = profile_from_string.at(config["LaserBeam"]["Profile"].as<std::string>());
   }
 
   template <int dim>
@@ -1476,7 +1480,11 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 	   << totalAmpNoiseTimesSqrtf
 	   << std::endl;
     }
-
+    std::map<std::string, double> results_this_cycle;
+    results_this_cycle["energy"] = energy;
+    results_this_cycle["coatingEnergy"] = coatingEnergy;
+    results_this_cycle["substrateEnergy"] = substrateEnergy;
+    results.push_back(results_this_cycle);
   }
     
   // run() sets up the grid and then solves the problem
@@ -1611,6 +1619,12 @@ int main (int argc, char **argv)
       {
 	dealii::deallog.depth_console (0);
 	ElasticProblem<3> elastic_problem_3d;
+
+  if (elastic_problem_3d.get_config()["RunTests"].as<bool>()) {
+    int result = Catch::Session().run( argc, argv );
+    return result;
+  }
+
 	elastic_problem_3d.run ();
       }
     }
@@ -1640,4 +1654,16 @@ int main (int argc, char **argv)
     }
 
   return 0;
+}
+
+TEST_CASE("TestEnergies") {
+  using namespace dealii;
+  using namespace QuasistaticBrownianThermalNoise;
+  ElasticProblem<3> elastic_problem_3d;
+  elastic_problem_3d.run ();
+
+  const double expected_energy = 0.01834756256794;
+  const double eps = 1.e-13;
+  const double energy = elastic_problem_3d.get_results()[0].at("energy");
+  REQUIRE(fabs(energy - expected_energy) < eps);
 }
