@@ -57,37 +57,9 @@ script is provided.
 
 CHOOSING THE PHYSICS
 =====================
-Currently, you must edit the source code to change most of the physics 
-(e.g., different material, different mirror dimensions, etc.) However, these settings 
-will move to the input file `config.yaml.`
-
-The relevant parameters are set in ElasticProblem::ElasticProblem().
-
-Starting on line 465, you can choose the following:
-
-  - mTKOutput = save vtk data for making 3D images (e.g. via paraview)?
-  - mNumberOfCycles = numer of resolutions ("cycles", ~13 is a good choice)
-  - mWhichCoatingYijkl = coating material (choose from those coded)
-  - mWhichSubstrateYijkl = substrate material (choose from those coded)
-  - r0 = beam width
-  - F0 = amplidude of applied pressure (should not affect results)
-  - rad = radius of cylindrical mirror
-  - d = coating thickness
-  - halflength = half of cylinder length along axis
-  
-Additionally, you might wish to change the temperature from 300K, which is set
-on line 1321 in a variable called T. (Search for T = 300) to find the line.
-
-ADDING YOUR OWN MATERIALS
-=========================
-
-You can add your own materials. Steps involved:
-1. Choose a name for your material (say NAME), and add kNAME to the enumerate 
-just under the last #include
-2. Add Tensor<4,dim> Y_NAME to ElasticProblem's class definition.
-3. Define Y_NAME in the ElasticProblem constructor. (i.e. Yijkl)
-4. Define lossPhi_NAME in the ElasticProblem constructor (i.e. the loss angle).
-
+Many changes to the physics (materials, sizes, temperature, etc.) 
+and numerical settings (e.g. choices affecting resolution) can be made by editing the input file `config.yaml.`
+Comments in the file explain each setting.
 
 QuasistaticBrownianThermalNoise_Paper.cpp
 ============================================
