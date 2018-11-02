@@ -1663,7 +1663,11 @@ TEST_CASE("TestEnergies") {
   elastic_problem_3d.run ();
 
   const double expected_energy = 0.01834756256794;
-  const double eps = 1.e-13;
+  const double expected_coating_energy = 0.001495325154621;
+  const double eps = 1.e-11;
   const double energy = elastic_problem_3d.get_results()[0].at("energy");
+  const double coating_energy
+    = elastic_problem_3d.get_results()[0].at("coatingEnergy");
   REQUIRE(fabs(energy - expected_energy) < eps);
+  REQUIRE(fabs(coating_energy - expected_coating_energy) < eps);
 }
