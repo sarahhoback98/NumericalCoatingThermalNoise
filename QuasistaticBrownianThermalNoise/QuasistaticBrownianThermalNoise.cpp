@@ -86,6 +86,7 @@ namespace LA
 #include <deal.II/base/logstream.h> 
 #include <iomanip>
 #include <cmath>
+#include <map>
 
 //Support for reading in grids in potential future versions
 #include <deal.II/grid/grid_in.h>
@@ -100,8 +101,20 @@ namespace LA
 // Enumerate different available Yijkl
 //****************************************************************//  
 enum material { kAlGaAs, kIso_AlGaAs, kIso_Ta2O5, kIso_FusedSilica };
+std::map<std::string, int> material_from_string{
+  {"AlGaAs", 0},
+  {"Iso_AlGaAs", 1},
+  {"Iso_Ta2O5", 2},
+  {"Iso_FusedSilica", 3}
+};
 
 enum profiles { TEM00, TEM02, TEM20, TEM02minus20 };
+std::map<std::string, int> profile_from_string{
+  {"TEM00", 0},
+  {"TEM02", 1},
+  {"TEM20", 2},
+  {"TEM02minus20", 3}
+};
 
 //****************************************************************//  
 // Date and Time Function         
@@ -205,6 +218,9 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 
 
     ConditionalOStream pcout; //Output stream that only prints on proc0
+
+    // For options
+    YAML::Node config;
 
     // Beam profile
     int beam_profile;
@@ -469,25 +485,11 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 
   template <int dim>
   void ElasticProblem<dim>::parse_config_file() {
-    YAML::Node config = YAML::LoadFile("config.yaml");
+    config = YAML::LoadFile("config.yaml");
 
-    const std::string beam_profile_string = config["BeamProfile"].as<std::string>();
-    if (beam_profile_string == "TEM00") {
-        beam_profile = TEM00;
-    } else if (beam_profile_string == "TEM02") {
-        beam_profile = TEM02;
-    } else if (beam_profile_string == "TEM20") {
-        beam_profile = TEM20;
-    } else if (beam_profile_string == "TEM02minus20") {
-        beam_profile = TEM02minus20;
-    } else {
-        std::cout << "ERROR: Invalid BeamProfile in config.yaml\n\n";
-        exit(-1);
-    }
-
+    beam_profile = 0;
     std::cout << "Beam profile: " << beam_profile
-              << " (" << config["BeamProfile"].as<std::string>() << ")\n";
-    exit(0);
+              << " (" << config["LaserBeam"]["Profile"] << ")\n";
   }
 
   template <int dim>
@@ -518,13 +520,12 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
                      pcout,
                      TimerOutput::summary,
                      TimerOutput::wall_times),
-    mVTKOutput(false),
-    mNumberOfCycles(3) // resolutions to do: 0,1,...mNumberOfCycles - 1
-
+    mVTKOutput(false)
   {
     // Parse input file
     parse_config_file();
 
+    mNumberOfCycles = config["Resolution"]["Cycles"].as<int>();
 
     //Choose which Yijkl to use for substrate and which to use for coating
     //Choices are 
@@ -532,37 +533,38 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     //kIso_AlGaAs #effective isotropic approx to x=0.92 AlGaAs
     //kIso_Ta2O5 #tantalum
     //kIso_FusedSilica #fused silica
-    mWhichCoatingYijkl = kAlGaAs;
-    mWhichSubstrateYijkl = kIso_FusedSilica;
+    mWhichCoatingYijkl = material_from_string.at(config["Mirror"]["Materials"]["CoatingMaterial"].as<std::string>());
+    mWhichSubstrateYijkl = material_from_string.at(config["Mirror"]["Materials"]["SubstrateMaterial"].as<std::string>());
 
     // I hereby declare code units so that 1 = 1 TPa for stress tensor
     //                                     1 = beam size for length
 
     // Intialize beam width w (in same units as innerMirrorSize) 
     // and beam amplitude a (=F_0, in code units)
-    r0 = 176.77669534; //note: our "r0" is r_0 in Liu & Thorne (2000)
+    r0 = config["LaserBeam"]["Radius"].as<double>();
+                       //note: our "r0" is r_0 in Liu & Thorne (2000)
                        //cf. arXiv:1707.07774 Eq. (4)   
                        // 176.7 from Cole+ (2013)
-    F0 = 0.001; //final result should not depend on this
+    F0 = config["LaserBeam"]["F0"].as<double>(); //final result should not depend on this
 
 
     // Choose the size of the mirror: it's a rectangle with points
     // low = (-innerMirrorSize*outFac, -innerMirrorSize*outFac, -innerMirrorSize*outFac)
     // up  = (innerMirrorSize*outFac, innerMirrorSize*outFac, 0)
     // Later, I will insert a coating above z=0, and move the outer boundary.
-    rad = 25000/2.0; //25800.; 
+    rad = config["Mirror"]["Dimensions"]["Radius"].as<double>(); //25800.;
     innerMirrorSize = 4.*r0; // this isn't the full size, but is used to help
                        // concentrate points near the spacer
     outFac = rad / innerMirrorSize; //so total mirror size is rad
                                //diameter of substrate is 25000 micron in 
                                //Cole+ (2013).
 
-    d = 6.83; //coating extends above z=0 this far...
+    d = config["Mirror"]["Dimensions"]["CoatingThickness"].as<double>(); //coating extends above z=0 this far...
               //6.83 micron: Cole+ 2013
               //4.68 based on Table I of Chalermsongsak+ (2015)
               //earlier versions of this code used 4.68
       
-    substrateheight = 25000.0/2.0;
+    substrateheight = config["Mirror"]["Dimensions"]["SubstrateHeight"].as<double>();
 
 
     //halflength = rad/8.+d/2.; //0.25 in + coating = total thickness
@@ -1210,7 +1212,8 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     //quadrature points (subdividing the cells nQuad times on each axis and 
     //doing 3rd order Gaussian quadrature in each subdivision).
 
-    const int nQuad = 10; //how many times to iterate the quadrature
+    const int nQuad = config["Resolution"]["QuadratureIterations"].as<int>();
+                         //how many times to iterate the quadrature
                          //only do this with grids designed to 
                          //have cells only in the coating or substrate, 
                          //as opposed to cells part in one, part in the other
@@ -1379,7 +1382,7 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     // 1/sqrt(Hz).
 
     const double kB = 1.3806488e-23; // J/K
-    const double T = 300; // K
+    const double T = config["Mirror"]["Temperature"].as<double>(); // K
     const double fourKbToverPi = (4.*kB*T)/M_PI;
     
     const double toSI = 1.e-6; //gives noise in m/sqrt(Hz)

@@ -1,1 +1,18 @@
-BeamProfile: TEM00
+LaserBeam:
+  Profile: TEM00
+  Radius: 176.77669534
+  F0: 0.001
+
+Mirror:
+  Dimensions:
+    Radius: 12500.0
+    SubstrateHeight: 12500.0
+    CoatingThickness: 6.83
+  Materials:
+    SubstrateMaterial: Iso_FusedSilica
+    CoatingMaterial: AlGaAs
+  Temperature: 300.0
+
+Resolution:
+  Cycles: 3
+  QuadratureIterations: 10
