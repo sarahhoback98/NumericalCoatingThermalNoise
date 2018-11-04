@@ -1,6 +1,6 @@
 /* ---------------------------------------------------------------------
  *
- * Elastostatic mirror by Geoffrey Lovelace.
+ * QuasistaticBrownianThermalNoise by Geoffrey Lovelace.
  *
  * This code uses deal.II, which is (C) 2000 - 2015 by the deal.II authors
  * This file is based on the step-8 tutorial.
@@ -1476,6 +1476,9 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     results_this_cycle["energy"] = energy;
     results_this_cycle["coatingEnergy"] = coatingEnergy;
     results_this_cycle["substrateEnergy"] = substrateEnergy;
+    results_this_cycle["subAmpNoiseTimesSqrtf"] = subAmpNoiseTimesSqrtf;
+    results_this_cycle["coatAmpNoiseTimesSqrtf"] = coatAmpNoiseTimesSqrtf;
+    results_this_cycle["totalAmpNoiseTimesSqrtf"] = totalAmpNoiseTimesSqrtf;
     results.push_back(results_this_cycle);
   }
     
@@ -1615,9 +1618,7 @@ int main (int argc, char **argv)
   }
 
   // Parse the input file
-  std::cout << "Configuration file = " << config_file << "\n";
   config = YAML::LoadFile(config_file);
-  std::cout << "Configuration = \n\n" << config << "\n\n";
 
   try
     {
@@ -1632,7 +1633,7 @@ int main (int argc, char **argv)
 	dealii::deallog.depth_console (0);
 	ElasticProblem<3> elastic_problem_3d;
 
-  if (config["RunTests"].as<bool>()) {
+  if (config["Tests"]["RunTests"].as<bool>()) {
     int result = session.run( argc, argv );
     return result;
   }
@@ -1674,12 +1675,22 @@ TEST_CASE("TestEnergies") {
   ElasticProblem<3> elastic_problem_3d;
   elastic_problem_3d.run ();
 
-  const double expected_energy = 0.01834756256794;
-  const double expected_coating_energy = 0.001495325154621;
-  const double eps = 1.e-11;
-  const double energy = elastic_problem_3d.get_results()[0].at("energy");
+  const double expected_energy = config["Tests"]["ExpectedTotalEnergy"].as<double>();
+  const double expected_coating_energy = config["Tests"]["ExpectedCoatingEnergy"].as<double>();
+  const double expected_noise = config["Tests"]["ExpectedTotalNoiseAt1Hz"].as<double>();
+  const double expected_coating_noise = config["Tests"]["ExpectedCoatingNoiseAt1Hz"].as<double>();
+
+  const double eps = config["Tests"]["Eps"].as<double>();
+  const int cycle_to_test = config["Tests"]["CycleToTest"].as<int>();
+
+  const double energy = elastic_problem_3d.get_results()[cycle_to_test].at("energy");
   const double coating_energy
-    = elastic_problem_3d.get_results()[0].at("coatingEnergy");
-  REQUIRE(fabs(energy - expected_energy) < eps);
-  REQUIRE(fabs(coating_energy - expected_coating_energy) < eps);
+    = elastic_problem_3d.get_results()[cycle_to_test].at("coatingEnergy");
+  const double noise = elastic_problem_3d.get_results()[cycle_to_test].at("totalAmpNoiseTimesSqrtf");
+  const double coating_noise = elastic_problem_3d.get_results()[cycle_to_test].at("coatAmpNoiseTimesSqrtf");
+
+  REQUIRE(fabs(energy - expected_energy)/expected_energy < eps);
+  REQUIRE(fabs(coating_energy - expected_coating_energy)/expected_coating_energy < eps);
+  REQUIRE(fabs(noise - expected_noise)/expected_noise < eps);
+  REQUIRE(fabs(coating_noise - expected_coating_noise)/expected_coating_noise < eps);
 }
