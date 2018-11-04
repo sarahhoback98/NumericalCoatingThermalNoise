@@ -5,6 +5,8 @@
 # Set the name of the project and target:
 SET(TARGET "QuasistaticBrownianThermalNoise")
 
+ENABLE_TESTING()
+
 # Declare all source files the target consists of. Here, this is only
 # the one step-X.cc file, but as you expand your project you may wish
 # to add other source files as well. If your project becomes much larger,
@@ -56,3 +58,8 @@ INCLUDE_DIRECTORIES(${CATCH_INCLUDE_DIRS})
 DEAL_II_INITIALIZE_CACHED_VARIABLES()
 PROJECT(${TARGET})
 DEAL_II_INVOKE_AUTOPILOT()
+
+ADD_TEST(BlackBox.BaseConfig mpirun -np ${PROCS_FOR_TESTS} ${CMAKE_CURRENT_BINARY_DIR}/QuasistaticBrownianThermalNoise --configuration=${CMAKE_CURRENT_SOURCE_DIR}/tests/InputFiles/BaseConfig.yaml)
+
+ADD_TEST(BlackBox.FusedSilica mpirun -np ${PROCS_FOR_TESTS} ${CMAKE_CURRENT_BINARY_DIR}/QuasistaticBrownianThermalNoise --configuration=${CMAKE_CURRENT_SOURCE_DIR}/tests/InputFiles/FusedSilica.yaml)
+

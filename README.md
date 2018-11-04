@@ -40,7 +40,7 @@ cd /path/to/QuasistaticBrownianThermalNoise.cpp
 mkdir build
 cd build
 
-cmake -DYAMLCPP_ROOT=/path/to/yamlcpp ..
+cmake .. -DYAMLCPP_ROOT=/Users/geoffrey/Codes/dealii/yaml/yaml-cpp/0.6.2/ -DCATCH_ROOT=/Users/geoffrey/Codes/dealii/NumericalCoatingThermalNoise/NumericalCoatingThermalNoise/external/ -DPROCS_FOR_TESTS=4 -DCMAKE_FIND_LIBRARY_PREFIXES=lib -DCMAKE_FIND_LIBRARY_SUFFIXES=.a
 
 make release #or just "make"...if a debug version of dealii is 
              #installed, make release avoids it
@@ -49,8 +49,14 @@ make release #or just "make"...if a debug version of dealii is
 Then, after editing `config.yaml`, run the code with, e.g.,
 
 ```
-mpirun -np 12 QuasistaticBrownianThermalNoise.cpp #run on 12 cores
+mpirun -np 12 QuasistaticBrownianThermalNoise.cpp \
+    --configure=/path/to/config.yaml
 ```
+
+Example configuration files are in `tests/InputFiles/` (cf. "Choosing the Physics" below). 
+
+You can run automated tests (currently, just black-box tests) by running 
+`ctest --output-on-failure` after compiling.
 
 To run on a cluster, you might use a batch submission script; an example 
 script is provided.

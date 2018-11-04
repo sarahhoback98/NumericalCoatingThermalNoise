@@ -1,0 +1,51 @@
+# FusedSilica.yaml
+# Test that a mirror with coating and substrate made of fused silica
+# gives the analytic result for the total energy and thermal noise.
+
+LaserBeam:
+  # The beam shape. Choices are TEM00, TEM02, TEM20, TEM02minus20
+  Profile: TEM00
+
+  # The intensity profiles are proportional to exp(-(x*x+y*y)/Radius^2)
+  # Radius has units of micrometers
+  Radius: 176.77669534
+
+  # The strength of the laser beam and the applied pressure.
+  # The thermal noise should be independent of this value.
+  F0: 0.001
+
+Mirror:
+  # All mirror dimensions are in units of micrometers
+  Dimensions:
+    Radius: 12500.0
+    SubstrateHeight: 12500.0
+    CoatingThickness: 6.83
+
+  # Material choices are AlGaAs (crystalline AlGaAs), Iso_FusedSilica,
+  # Iso_AlGaAs (effective isotropic AlGaAs), and Iso_Ta2O5
+  # The prefix Iso_ means isotropic.
+  Materials:
+    SubstrateMaterial: Iso_FusedSilica
+    CoatingMaterial: Iso_FusedSilica
+
+  # Mirror temperature in Kelvin, for computing the thermal noise.
+  Temperature: 300.0
+
+Resolution:
+  # Refine the mesh each iteration, for Cycles iterations total. Higher
+  # Cycles means run to higher resolution.
+  Cycles: 3
+
+  # Iterations for quadruature. Too small a value makes the integral of the
+  # coating potential energy (and thus the coating thermal noise) inaccurate.
+  QuadratureIterations: 10
+
+Tests:
+  # Run tests, instead of getting and outputting the solution?
+  RunTests: True
+  Eps: 1.e-11
+  CycleToTest: 2
+  ExpectedTotalEnergy: 0.015172974039334
+  ExpectedCoatingEnergy: 0.00038567485292091
+  ExpectedTotalNoiseAt1Hz: 8.9452535281233e-18
+  ExpectedCoatingNoiseAt1Hz: 1.4261590357661e-18
