@@ -100,6 +100,9 @@ namespace LA
 #define CATCH_CONFIG_RUNNER
 #include <catch2/catch.h>
 
+// Global variable holding the configuration (to be read from a .yaml file)
+YAML::Node config;
+
 //****************************************************************//  
 // Enumerate different available Yijkl
 //****************************************************************//  
@@ -186,12 +189,10 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
   public:
     ElasticProblem (); //sets constants innerMirrorSize,outFac,r0,a
     ~ElasticProblem ();
-    YAML::Node get_config() {return config;};
     std::vector<std::map<std::string, double>> get_results() {return results;};
     void run ();
 
   private:
-    void parse_config_file();
     void setup_system ();
     void assemble_system ();
     unsigned int solve ();
@@ -225,7 +226,6 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
     ConditionalOStream pcout; //Output stream that only prints on proc0
 
     // For options and tests
-    YAML::Node config;
     std::vector<std::map<std::string, double>> results;
 
     // Beam profile
@@ -490,13 +490,6 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
   }
 
   template <int dim>
-  void ElasticProblem<dim>::parse_config_file() {
-    config = YAML::LoadFile("config.yaml");
-
-    beam_profile = profile_from_string.at(config["LaserBeam"]["Profile"].as<std::string>());
-  }
-
-  template <int dim>
   ElasticProblem<dim>::ElasticProblem ()
     :
     mpi_communicator (MPI_COMM_WORLD), //MPI_COMM_WORLD=all procs available
@@ -526,8 +519,7 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
                      TimerOutput::wall_times),
     mVTKOutput(false)
   {
-    // Parse input file
-    parse_config_file();
+    beam_profile = profile_from_string.at(config["LaserBeam"]["Profile"].as<std::string>());
 
     mNumberOfCycles = config["Resolution"]["Cycles"].as<int>();
 
@@ -1607,6 +1599,26 @@ CylTransFunc::CylTransFunc(double coatThick, double halfCylThick):
 
 int main (int argc, char **argv)
 {
+  // There is one command-line option we need: a path to the configuration file
+  std::string config_file = "";
+  // Parse the command-line arguments using catch's parser
+  Catch::Session session;
+  auto cli =
+      session.cli() |
+      Catch::clara::Opt(config_file, "config_file")["-c"]["--configuration"](
+          "Path to configuration .yaml file");
+  session.cli(cli);
+  const int return_code = session.applyCommandLine(argc, argv);
+  if (return_code != 0) {
+    // Command-line parsing error
+    return return_code;
+  }
+
+  // Parse the input file
+  std::cout << "Configuration file = " << config_file << "\n";
+  config = YAML::LoadFile(config_file);
+  std::cout << "Configuration = \n\n" << config << "\n\n";
+
   try
     {
       using namespace dealii;
@@ -1620,8 +1632,8 @@ int main (int argc, char **argv)
 	dealii::deallog.depth_console (0);
 	ElasticProblem<3> elastic_problem_3d;
 
-  if (elastic_problem_3d.get_config()["RunTests"].as<bool>()) {
-    int result = Catch::Session().run( argc, argv );
+  if (config["RunTests"].as<bool>()) {
+    int result = session.run( argc, argv );
     return result;
   }
 
