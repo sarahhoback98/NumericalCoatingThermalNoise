@@ -50,7 +50,7 @@ Then, after editing `config.yaml`, run the code with, e.g.,
 
 ```
 mpirun -np 12 QuasistaticBrownianThermalNoise.cpp \
-    --configure=/path/to/config.yaml
+    --configuration=/path/to/config.yaml
 ```
 
 Example configuration files are in `tests/InputFiles/` (cf. "Choosing the Physics" below). 

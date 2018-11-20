@@ -37,4 +37,5 @@ Resolution:
   QuadratureIterations: 10
 
 # Run tests, instead of getting and outputting the solution?
-RunTests: True
+Tests:
+  RunTests: True
