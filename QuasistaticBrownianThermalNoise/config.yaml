@@ -22,20 +22,54 @@ Mirror:
   # The prefix Iso_ means isotropic.
   Materials:
     SubstrateMaterial: Iso_FusedSilica
-    CoatingMaterial: AlGaAs
+    CoatingMaterial: Iso_AlGaAs
 
   # Mirror temperature in Kelvin, for computing the thermal noise.
   Temperature: 300.0
 
+  # Can be either true or false. If true we use the custom loss angles defined below.
+  CustomLossAngles: True
+
+  Custom:
+  # We define the loss angles for bulk/shear for different materials and crystaline AlGaAs.
+  # When the bulk and shear loss angles (as well as Phi11, Phi12, Phi44) are the same, we should
+  # get the analyic answer of only having one loss angle.
+  # The original values for the loss angles are included below
+  # lossPhi_Iso_FusedSilica = 1.e-6 // Cole+ (2013)
+  # lossPhi_Iso_Ta2O5 = 4.4e-4 // Yamamoto+ (2006), PRD 74, 022002
+  # lossPhi_Iso_AlGaAs = 2.5e-5 // Cole+ (2013)
+  # lossPhi = lossPhi_Iso_AlGaAs;  // use same loss angle from Cole+(2013)
+    Fused_Silica:
+      Bulk:  1.e-6
+      Shear: 1.e-6
+    Ta2O5:
+      Bulk:  4.e-4
+      Shear: 4.e-4
+    Iso_AlGaAs:
+      Bulk:  2.5e-5
+      Shear: 2.5e-5
+    Crystalline_AlGaAs:
+      Phi11: 2.5e-5
+      Phi12: 2.5e-5
+      Phi44: 2.5e-5
+
+  LossAngles:
+      Ta2O5: 1.e-6
+      Fused_Silica: 4.e-4
+      Iso_AlGaAs: 2.5e-5
+      Crystalline_AlGaAs: 2.5e-5
+
 Resolution:
   # Refine the mesh each iteration, for Cycles iterations total. Higher
   # Cycles means run to higher resolution.
-  Cycles: 1
+  Cycles: 10
 
   # Iterations for quadruature. Too small a value makes the integral of the
   # coating potential energy (and thus the coating thermal noise) inaccurate.
   QuadratureIterations: 10
 
+
 # Run tests, instead of getting and outputting the solution?
 Tests:
   RunTests: True
+
