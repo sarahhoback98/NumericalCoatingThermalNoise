@@ -1,7 +1,6 @@
 # Can be either true or false. If true we use the custom loss angles defined below.
 # If false, will use the default values for loss angles.
-CustomLossAngles: True
-
+UseMultipleLossAngles: True
 
   # We define the loss angles for bulk/shear for different materials and crystaline AlGaAs.
   # When the bulk and shear loss angles (as well as Phi11, Phi12, Phi44) are the same, we should

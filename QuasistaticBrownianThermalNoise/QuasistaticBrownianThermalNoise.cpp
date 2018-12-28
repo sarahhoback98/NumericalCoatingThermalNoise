@@ -256,8 +256,8 @@ class ElasticProblem {
 
   double getYijkl(int whichYijkl, unsigned int i, unsigned int j,
                   unsigned int k, unsigned int l);
-  double getMultLossAngleYijkl(int whichYijkl, unsigned int i, unsigned int j,
-                               unsigned int k, unsigned int l);
+  double getYijklPhi(int whichYijkl, unsigned int i, unsigned int j,
+                     unsigned int k, unsigned int l);
 };
 
 //****************************************************************//
@@ -466,11 +466,9 @@ double ElasticProblem<dim>::getYijkl(int whichYijkl, unsigned int i,
 
 // Switch case to find Yijkl using more than one loss angle for the coating.
 template <int dim>
-double ElasticProblem<dim>::getMultLossAngleYijkl(int whichYijkl,
-                                                  unsigned int i,
-                                                  unsigned int j,
-                                                  unsigned int k,
-                                                  unsigned int l) {
+double ElasticProblem<dim>::getYijklPhi(int whichYijkl, unsigned int i,
+                                        unsigned int j, unsigned int k,
+                                        unsigned int l) {
   switch (whichYijkl) {
     case (kAlGaAs):
       return Y_AlGaAs_Phi[i][j][k][l];
@@ -487,10 +485,12 @@ double ElasticProblem<dim>::getMultLossAngleYijkl(int whichYijkl,
   return 0.0;
 }
 
-// Calculates and returns the correct value for Y_ijkl in terms of the bulk
-// and shear modulus. The ints i,j,k,l that are passed are the ints from the for
-// loops that assign the correct values to the youngs tensor for each of the
-// coatings.
+// Calculates and returns the correct value for Y_Ijkl_Phi in terms of the bulk
+// and shear modulus. The ints i,j,k,l that are passed are the tensor indexes of
+// the Youngs that assign the correct values to the youngs tensor for each of
+// the coatings. This is nontrivial because we specify isotropic materials by
+// Lame parameters (mu, lambda), but we want to scale terms proportional to the
+// bulk modulus by phi_bulk.
 double ScaleYikjlPhiBulk(double lame_mu, double lame_lambda, double phibulk,
                          double phishear) {
   return ((((lame_lambda + (lame_mu * (2.0 / 3.0))) * phibulk) -
@@ -500,16 +500,6 @@ double ScaleYikjlPhiBulk(double lame_mu, double lame_lambda, double phibulk,
 double ScaleYikjlPhiShear(double lame_mu, double phishear) {
   return (lame_mu * phishear);
 }
-
-// double SomeFunc(std::string SomeYijkl, double lame_mu, double lame_lambda,
-// double phibulk,
-//                    double phishear){
-// double somedouble = 0;
-//  if (someYijkl == "Y_Iso_AlGaAs_Phi") {
-//      somedouble = 1;
-//  }
-//    return somedouble;
-//}
 
 template <int dim>
 ElasticProblem<dim>::ElasticProblem()
@@ -605,7 +595,6 @@ ElasticProblem<dim>::ElasticProblem()
   lossPhi_AlGaAs = lossPhi_Iso_AlGaAs;  // use same loss angle from Cole+(2013)
 
   // We define these ourselves, to allow for the varied loss angles.
-
   lossPhi_AlGaAs_11 =
       config_multloss["Crystalline_AlGaAs"]["Phi11"].as<double>();
   lossPhi_AlGaAs_12 =
@@ -826,6 +815,7 @@ ElasticProblem<dim>::ElasticProblem()
 
   // Just use Cole+ (2013) elastic moduli.
   // Supplemental document, section S2.
+  // Cole+ (2013) uses GPa = 1 and we use TPa = 1, so we divide by 1000.
   double c11_AlGaAs = 119.94 / 1000.0;
   double c12_AlGaAs = 55.38 / 1000.0;
   double c44_AlGaAs = 59.15 / 1000.0;
@@ -1361,9 +1351,8 @@ void ElasticProblem<dim>::output_results(const unsigned int cycle) {
                   // If custom loss angles are specified, then we calculate
                   // the energy for the coating using the appropriate youngs
                   // tensor.
-                  if (config_multloss["CustomLossAngles"].as<bool>()) {
-                    sYijkl =
-                        getMultLossAngleYijkl(mWhichCoatingYijkl, i, j, k, l);
+                  if (config_multloss["UseMultipleLossAngles"].as<bool>()) {
+                    sYijkl = getYijklPhi(mWhichCoatingYijkl, i, j, k, l);
                     local_U_this_energy *= sYijkl;
                     local_coatingEnergy += local_U_this_energy;
                   } else {
@@ -1535,12 +1524,13 @@ void ElasticProblem<dim>::output_results(const unsigned int cycle) {
       toSI * fourKbToverPi * substrateEnergy * subLossAngle;
 
   double coatNoiseTimesf;
-  if (config_multloss["CustomLossAngles"].as<bool>()) {
+  // If using multiple loss angles, no need to scale the result by an overall
+  // loss angle here; the correct scaling of the coating energy has already been
+  // done.
+  if (config_multloss["UseMultipleLossAngles"].as<bool>()) {
     coatNoiseTimesf = toSI * fourKbToverPi * coatingEnergy;
   } else
     coatNoiseTimesf = toSI * fourKbToverPi * coatingEnergy * coatLossAngle;
-  // toSI * fourKbToverPi * coatingEnergy * lossPhi_AlGaAs;
-  // Use same loss angle for coating whether crystal or effective isotropic
 
   const double totalNoiseTimesf = subNoiseTimesf + coatNoiseTimesf;
 
