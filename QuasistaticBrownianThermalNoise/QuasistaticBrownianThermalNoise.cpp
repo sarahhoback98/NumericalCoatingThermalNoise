@@ -101,6 +101,7 @@ using namespace dealii::LinearAlgebraTrilinos;
 
 // Global variable holding the configuration (to be read from a .yaml file)
 YAML::Node config;
+YAML::Node config_multloss;
 
 //****************************************************************//
 // Enumerate different available Yijkl
@@ -236,9 +237,10 @@ class ElasticProblem {
       lossPhi_Iso_AlGaAs;
 
   // Loss Angles for Young's tensors that can be varied
-  double phi11, phi12, phi44, lossPhi_Ta2O5_bulk, lossPhi_Ta2O5_shear,
-      lossPhi_Iso_FusedSilica_bulk, lossPhi_Iso_FusedSilica_shear,
-      lossPhi_Iso_AlGaAs_bulk, lossPhi_Iso_AlGaAs_shear;
+  double lossPhi_AlGaAs_11, lossPhi_AlGaAs_12, lossPhi_AlGaAs_44,
+      lossPhi_Ta2O5_bulk, lossPhi_Ta2O5_shear, lossPhi_Iso_FusedSilica_bulk,
+      lossPhi_Iso_FusedSilica_shear, lossPhi_Iso_AlGaAs_bulk,
+      lossPhi_Iso_AlGaAs_shear;
 
   // Mirror dimension parameters
   double innerMirrorSize, outFac, rad, substrateheight, halflength;
@@ -489,16 +491,25 @@ double ElasticProblem<dim>::getMultLossAngleYijkl(int whichYijkl,
 // and shear modulus. The ints i,j,k,l that are passed are the ints from the for
 // loops that assign the correct values to the youngs tensor for each of the
 // coatings.
-
-double ReturnBulkValue(double lame_mu, double lame_lambda, double phibulk,
-                       double phishear) {
+double ScaleYikjlPhiBulk(double lame_mu, double lame_lambda, double phibulk,
+                         double phishear) {
   return ((((lame_lambda + (lame_mu * (2.0 / 3.0))) * phibulk) -
            ((2.0 / 3.0) * lame_mu * phishear)));
 }
 
-double ReturnShearValue(double lame_mu, double phishear) {
+double ScaleYikjlPhiShear(double lame_mu, double phishear) {
   return (lame_mu * phishear);
 }
+
+// double SomeFunc(std::string SomeYijkl, double lame_mu, double lame_lambda,
+// double phibulk,
+//                    double phishear){
+// double somedouble = 0;
+//  if (someYijkl == "Y_Iso_AlGaAs_Phi") {
+//      somedouble = 1;
+//  }
+//    return somedouble;
+//}
 
 template <int dim>
 ElasticProblem<dim>::ElasticProblem()
@@ -509,13 +520,14 @@ ElasticProblem<dim>::ElasticProblem()
                         Triangulation<dim>::smoothing_on_refinement |
                         Triangulation<dim>::smoothing_on_coarsening)),
       dof_handler(triangulation),
-      fe(FE_Q<dim>(2), dim),  // use 3D quad elements, and use dim=3
-                              // elements to make a vector element from 3
-                              // scalar elements.
-                              // use 3D lin elements with 2->1 here
-                              // and QGauss=2 instead of QGauss=3 later on
-                              // for faster speed, but quad seems to be
-                              // more accurate, at least for smooth solutions.
+      fe(FE_Q<dim>(2),
+         dim),  // use 3D quad elements, and use dim=3
+                // elements to make a vector element from 3
+                // scalar elements.
+                // use 3D lin elements with 2->1 here
+                // and QGauss=2 instead of QGauss=3 later on
+                // for faster speed, but quad seems to be
+                // more accurate, at least for smooth solutions.
       pcout(std::cout,
             (Utilities::MPI::this_mpi_process(mpi_communicator) == 0)),
       Y_Iso_FusedSilica(),
@@ -563,14 +575,14 @@ ElasticProblem<dim>::ElasticProblem()
   // Choose the size of the mirror: it's a rectangle with points
   // low = (-innerMirrorSize*outFac, -innerMirrorSize*outFac,
   // -innerMirrorSize*outFac) up  = (innerMirrorSize*outFac,
-  // innerMirrorSize*outFac, 0) Later, I will insert a coating above z=0, and
-  // move the outer boundary.
+  // innerMirrorSize*outFac, 0) Later, I will insert a coating above z=0,
+  // and move the outer boundary.
   rad = config["Mirror"]["Dimensions"]["Radius"].as<double>();  // 25800.;
-  innerMirrorSize = 4. * r0;  // this isn't the full size, but is used to help
-                              // concentrate points near the spacer
+  innerMirrorSize = 4. * r0;       // this isn't the full size, but is used to
+                                   // help concentrate points near the spacer
   outFac = rad / innerMirrorSize;  // so total mirror size is rad
-                                   // diameter of substrate is 25000 micron in
-                                   // Cole+ (2013).
+                                   // diameter of substrate is 25000 micron
+                                   // in Cole+ (2013).
 
   d = config["Mirror"]["Dimensions"]["CoatingThickness"]
           .as<double>();  // coating extends above z=0 this far...
@@ -580,6 +592,38 @@ ElasticProblem<dim>::ElasticProblem()
 
   substrateheight =
       config["Mirror"]["Dimensions"]["SubstrateHeight"].as<double>();
+
+  // Define some dimensionless loss angles.
+  // lossPhi_Iso_FusedSilica = fused silica
+  // lossPhi_Iso_Ta2O5 = Tantalum oxide
+  // lossAlGaAsx92 = x=0.92 AlGaAs
+  // lossPhi = 1.e-7; //Chalermsongsak+ (2015) Table I
+  lossPhi_Iso_FusedSilica = 1.e-6;      // Cole+ (2013)
+  lossPhi_Iso_Ta2O5 = 4.e-4;            // Yamamoto+ (2006), PRD 74, 022002
+                                        // (good value??)
+  lossPhi_Iso_AlGaAs = 2.5e-5;          // Cole+ (2013)
+  lossPhi_AlGaAs = lossPhi_Iso_AlGaAs;  // use same loss angle from Cole+(2013)
+
+  // We define these ourselves, to allow for the varied loss angles.
+
+  lossPhi_AlGaAs_11 =
+      config_multloss["Crystalline_AlGaAs"]["Phi11"].as<double>();
+  lossPhi_AlGaAs_12 =
+      config_multloss["Crystalline_AlGaAs"]["Phi12"].as<double>();
+  lossPhi_AlGaAs_44 =
+      config_multloss["Crystalline_AlGaAs"]["Phi44"].as<double>();
+
+  lossPhi_Iso_FusedSilica_bulk =
+      config_multloss["Fused_Silica"]["Bulk"].as<double>();
+  lossPhi_Iso_FusedSilica_shear =
+      config_multloss["Fused_Silica"]["Shear"].as<double>();
+
+  lossPhi_Ta2O5_bulk = config_multloss["Ta2O5"]["Bulk"].as<double>();
+  lossPhi_Ta2O5_shear = config_multloss["Ta2O5"]["Shear"].as<double>();
+
+  lossPhi_Iso_AlGaAs_bulk = config_multloss["Iso_AlGaAs"]["Bulk"].as<double>();
+  lossPhi_Iso_AlGaAs_shear =
+      config_multloss["Iso_AlGaAs"]["Shear"].as<double>();
 
   // halflength = rad/8.+d/2.; //0.25 in + coating = total thickness
   halflength =
@@ -598,7 +642,8 @@ ElasticProblem<dim>::ElasticProblem()
   // Y=100 GPa, sigma=0.32 coating
   // Y = Young's modulus, sigma = Poisson Ratio,
   // K = bulk modulus, mu = shear modulus
-  // Y = 9 mu K / (3K + mu), sigma = (3K - 2 mu)/(2(3k+mu)), K=lambda+(2/3)mu
+  // Y = 9 mu K / (3K + mu), sigma = (3K - 2 mu)/(2(3k+mu)),
+  // K=lambda+(2/3)mu
 
   lame_lambda_FusedSilica = 0.0158508;
   lame_mu_FusedSilica = 0.0307692;
@@ -632,18 +677,18 @@ ElasticProblem<dim>::ElasticProblem()
         for (int l = 0; l < dim; ++l) {
           // Y_{ijkl} = lambda dij dkl + mu dik djl + mu dil djk
           if (i == j && k == l) {
-            Y_Iso_FusedSilica_Phi[i][j][k][l] += ReturnBulkValue(
+            Y_Iso_FusedSilica_Phi[i][j][k][l] += ScaleYikjlPhiBulk(
                 lame_mu_FusedSilica, lame_lambda_FusedSilica,
                 lossPhi_Iso_FusedSilica_bulk, lossPhi_Iso_FusedSilica_shear);
           }
 
           if (i == k && j == l) {
-            Y_Iso_FusedSilica_Phi[i][j][k][l] += ReturnShearValue(
+            Y_Iso_FusedSilica_Phi[i][j][k][l] += ScaleYikjlPhiShear(
                 lame_mu_FusedSilica, lossPhi_Iso_FusedSilica_shear);
           }
 
           if (i == l && j == k) {
-            Y_Iso_FusedSilica_Phi[i][j][k][l] += ReturnShearValue(
+            Y_Iso_FusedSilica_Phi[i][j][k][l] += ScaleYikjlPhiShear(
                 lame_mu_FusedSilica, lossPhi_Iso_FusedSilica_shear);
           }
         }
@@ -691,18 +736,18 @@ ElasticProblem<dim>::ElasticProblem()
           // Y_{ijkl} = lambda dij dkl + mu dik djl + mu dil djk
           if (i == j && k == l) {
             Y_Iso_Ta2O5_Phi[i][j][k][l] +=
-                ReturnBulkValue(lame_mu_Ta2O5, lame_lambda_Ta2O5,
-                                lossPhi_Ta2O5_bulk, lossPhi_Ta2O5_shear);
+                ScaleYikjlPhiBulk(lame_mu_Ta2O5, lame_lambda_Ta2O5,
+                                  lossPhi_Ta2O5_bulk, lossPhi_Ta2O5_shear);
           }
 
           if (i == k && j == l) {
             Y_Iso_Ta2O5_Phi[i][j][k][l] +=
-                ReturnShearValue(lame_mu_Ta2O5, lossPhi_Ta2O5_shear);
+                ScaleYikjlPhiShear(lame_mu_Ta2O5, lossPhi_Ta2O5_shear);
           }
 
           if (i == l && j == k) {
             Y_Iso_Ta2O5_Phi[i][j][k][l] +=
-                ReturnShearValue(lame_mu_Ta2O5, lossPhi_Ta2O5_shear);
+                ScaleYikjlPhiShear(lame_mu_Ta2O5, lossPhi_Ta2O5_shear);
           }
         }
       }
@@ -747,19 +792,19 @@ ElasticProblem<dim>::ElasticProblem()
         for (int l = 0; l < dim; ++l) {
           // Y_{ijkl} = lambda dij dkl + mu dik djl + mu dil djk
           if (i == j && k == l) {
-            Y_Iso_AlGaAs_Phi[i][j][k][l] += ReturnBulkValue(
+            Y_Iso_AlGaAs_Phi[i][j][k][l] += ScaleYikjlPhiBulk(
                 lame_mu_AlGaAs, lame_lambda_AlGaAs, lossPhi_Iso_AlGaAs_bulk,
                 lossPhi_Iso_AlGaAs_shear);
           }
 
           if (i == k && j == l) {
             Y_Iso_AlGaAs_Phi[i][j][k][l] +=
-                ReturnShearValue(lame_mu_AlGaAs, lossPhi_Iso_AlGaAs_shear);
+                ScaleYikjlPhiShear(lame_mu_AlGaAs, lossPhi_Iso_AlGaAs_shear);
           }
 
           if (i == l && j == k) {
             Y_Iso_AlGaAs_Phi[i][j][k][l] +=
-                ReturnShearValue(lame_mu_AlGaAs, lossPhi_Iso_AlGaAs_shear);
+                ScaleYikjlPhiShear(lame_mu_AlGaAs, lossPhi_Iso_AlGaAs_shear);
           }
         }
       }
@@ -781,102 +826,64 @@ ElasticProblem<dim>::ElasticProblem()
 
   // Just use Cole+ (2013) elastic moduli.
   // Supplemental document, section S2.
-  double c11 = 119.94 / 1000.0;
-  double c12 = 55.38 / 1000.0;
-  double c44 = 59.15 / 1000.0;
+  double c11_AlGaAs = 119.94 / 1000.0;
+  double c12_AlGaAs = 55.38 / 1000.0;
+  double c44_AlGaAs = 59.15 / 1000.0;
 
   // The following code sets all 21 nonzero components.
   // Prepared in Mathematica, then sorted here by hand.
   // I also checked this by eye.
-  Y_AlGaAs[0][0][0][0] = c11;
-  Y_AlGaAs[1][1][1][1] = c11;
-  Y_AlGaAs[2][2][2][2] = c11;
+  Y_AlGaAs[0][0][0][0] = c11_AlGaAs;
+  Y_AlGaAs[1][1][1][1] = c11_AlGaAs;
+  Y_AlGaAs[2][2][2][2] = c11_AlGaAs;
 
-  Y_AlGaAs[0][0][1][1] = c12;
-  Y_AlGaAs[0][0][2][2] = c12;
-  Y_AlGaAs[1][1][0][0] = c12;
-  Y_AlGaAs[1][1][2][2] = c12;
-  Y_AlGaAs[2][2][0][0] = c12;
-  Y_AlGaAs[2][2][1][1] = c12;
+  Y_AlGaAs[0][0][1][1] = c12_AlGaAs;
+  Y_AlGaAs[0][0][2][2] = c12_AlGaAs;
+  Y_AlGaAs[1][1][0][0] = c12_AlGaAs;
+  Y_AlGaAs[1][1][2][2] = c12_AlGaAs;
+  Y_AlGaAs[2][2][0][0] = c12_AlGaAs;
+  Y_AlGaAs[2][2][1][1] = c12_AlGaAs;
 
-  Y_AlGaAs[0][1][0][1] = c44;
-  Y_AlGaAs[0][1][1][0] = c44;
-  Y_AlGaAs[1][0][0][1] = c44;
-  Y_AlGaAs[1][0][1][0] = c44;
+  Y_AlGaAs[0][1][0][1] = c44_AlGaAs;
+  Y_AlGaAs[0][1][1][0] = c44_AlGaAs;
+  Y_AlGaAs[1][0][0][1] = c44_AlGaAs;
+  Y_AlGaAs[1][0][1][0] = c44_AlGaAs;
 
-  Y_AlGaAs[0][2][0][2] = c44;
-  Y_AlGaAs[0][2][2][0] = c44;
-  Y_AlGaAs[2][0][0][2] = c44;
-  Y_AlGaAs[2][0][2][0] = c44;
+  Y_AlGaAs[0][2][0][2] = c44_AlGaAs;
+  Y_AlGaAs[0][2][2][0] = c44_AlGaAs;
+  Y_AlGaAs[2][0][0][2] = c44_AlGaAs;
+  Y_AlGaAs[2][0][2][0] = c44_AlGaAs;
 
-  Y_AlGaAs[1][2][1][2] = c44;
-  Y_AlGaAs[1][2][2][1] = c44;
-  Y_AlGaAs[2][1][1][2] = c44;
-  Y_AlGaAs[2][1][2][1] = c44;
+  Y_AlGaAs[1][2][1][2] = c44_AlGaAs;
+  Y_AlGaAs[1][2][2][1] = c44_AlGaAs;
+  Y_AlGaAs[2][1][1][2] = c44_AlGaAs;
+  Y_AlGaAs[2][1][2][1] = c44_AlGaAs;
 
-  Y_AlGaAs_Phi[0][0][0][0] = c11 * phi11;
-  Y_AlGaAs_Phi[1][1][1][1] = c11 * phi11;
-  Y_AlGaAs_Phi[2][2][2][2] = c11 * phi11;
+  Y_AlGaAs_Phi[0][0][0][0] = c11_AlGaAs * lossPhi_AlGaAs_11;
+  Y_AlGaAs_Phi[1][1][1][1] = c11_AlGaAs * lossPhi_AlGaAs_11;
+  Y_AlGaAs_Phi[2][2][2][2] = c11_AlGaAs * lossPhi_AlGaAs_11;
 
-  Y_AlGaAs_Phi[0][0][1][1] = c12 * phi12;
-  Y_AlGaAs_Phi[0][0][2][2] = c12 * phi12;
-  Y_AlGaAs_Phi[1][1][0][0] = c12 * phi12;
-  Y_AlGaAs_Phi[1][1][2][2] = c12 * phi12;
-  Y_AlGaAs_Phi[2][2][0][0] = c12 * phi12;
-  Y_AlGaAs_Phi[2][2][1][1] = c12 * phi12;
+  Y_AlGaAs_Phi[0][0][1][1] = c12_AlGaAs * lossPhi_AlGaAs_12;
+  Y_AlGaAs_Phi[0][0][2][2] = c12_AlGaAs * lossPhi_AlGaAs_12;
+  Y_AlGaAs_Phi[1][1][0][0] = c12_AlGaAs * lossPhi_AlGaAs_12;
+  Y_AlGaAs_Phi[1][1][2][2] = c12_AlGaAs * lossPhi_AlGaAs_12;
+  Y_AlGaAs_Phi[2][2][0][0] = c12_AlGaAs * lossPhi_AlGaAs_12;
+  Y_AlGaAs_Phi[2][2][1][1] = c12_AlGaAs * lossPhi_AlGaAs_12;
 
-  Y_AlGaAs_Phi[0][1][0][1] = c44 * phi44;
-  Y_AlGaAs_Phi[0][1][1][0] = c44 * phi44;
-  Y_AlGaAs_Phi[1][0][0][1] = c44 * phi44;
-  Y_AlGaAs_Phi[1][0][1][0] = c44 * phi44;
+  Y_AlGaAs_Phi[0][1][0][1] = c44_AlGaAs * lossPhi_AlGaAs_44;
+  Y_AlGaAs_Phi[0][1][1][0] = c44_AlGaAs * lossPhi_AlGaAs_44;
+  Y_AlGaAs_Phi[1][0][0][1] = c44_AlGaAs * lossPhi_AlGaAs_44;
+  Y_AlGaAs_Phi[1][0][1][0] = c44_AlGaAs * lossPhi_AlGaAs_44;
 
-  Y_AlGaAs_Phi[0][2][0][2] = c44 * phi44;
-  Y_AlGaAs_Phi[0][2][2][0] = c44 * phi44;
-  Y_AlGaAs_Phi[2][0][0][2] = c44 * phi44;
-  Y_AlGaAs_Phi[2][0][2][0] = c44 * phi44;
+  Y_AlGaAs_Phi[0][2][0][2] = c44_AlGaAs * lossPhi_AlGaAs_44;
+  Y_AlGaAs_Phi[0][2][2][0] = c44_AlGaAs * lossPhi_AlGaAs_44;
+  Y_AlGaAs_Phi[2][0][0][2] = c44_AlGaAs * lossPhi_AlGaAs_44;
+  Y_AlGaAs_Phi[2][0][2][0] = c44_AlGaAs * lossPhi_AlGaAs_44;
 
-  Y_AlGaAs_Phi[1][2][1][2] = c44 * phi44;
-  Y_AlGaAs_Phi[1][2][2][1] = c44 * phi44;
-  Y_AlGaAs_Phi[2][1][1][2] = c44 * phi44;
-  Y_AlGaAs_Phi[2][1][2][1] = c44 * phi44;
-
-  // Define some dimensionless loss angles.
-  // lossPhi_Iso_FusedSilica = fused silica
-  // lossPhi_Iso_Ta2O5 = Tantalum oxide
-  // lossAlGaAsx92 = x=0.92 AlGaAs
-  // lossPhi = 1.e-7; //Chalermsongsak+ (2015) Table I
-  lossPhi_Iso_FusedSilica = config["Mirror"]["LossAngles"]["Fused_Silica"]
-                                .as<double>();  // Cole+ (2013)
-  lossPhi_Iso_Ta2O5 = config["Mirror"]["LossAngles"]["Ta2O5"]
-                          .as<double>();  // Yamamoto+ (2006), PRD 74, 022002
-                                          // (good value??)
-  lossPhi_Iso_AlGaAs = config["Mirror"]["LossAngles"]["Iso_AlGaAs"]
-                           .as<double>();  // Cole+ (2013)
-  lossPhi_AlGaAs = config["Mirror"]["LossAngles"]["Crystalline_AlGaAs"]
-                       .as<double>();  // use same loss angle from Cole+(2013)
-
-  // We define these ourselves, to allow for the varied loss angles.
-
-  phi11 =
-      config["Mirror"]["Custom"]["Crystalline_AlGaAs"]["Phi11"].as<double>();
-  phi12 =
-      config["Mirror"]["Custom"]["Crystalline_AlGaAs"]["Phi12"].as<double>();
-  phi44 =
-      config["Mirror"]["Custom"]["Crystalline_AlGaAs"]["Phi44"].as<double>();
-
-  lossPhi_Iso_FusedSilica_bulk =
-      config["Mirror"]["Custom"]["Fused_Silica"]["Bulk"].as<double>();
-  lossPhi_Iso_FusedSilica_shear =
-      config["Mirror"]["Custom"]["Fused_Silica"]["Shear"].as<double>();
-
-  lossPhi_Ta2O5_bulk = config["Mirror"]["Custom"]["Ta2O5"]["Bulk"].as<double>();
-  lossPhi_Ta2O5_shear =
-      config["Mirror"]["Custom"]["Ta2O5"]["Shear"].as<double>();
-
-  lossPhi_Iso_AlGaAs_bulk =
-      config["Mirror"]["Custom"]["Iso_AlGaAs"]["Bulk"].as<double>();
-  lossPhi_Iso_AlGaAs_shear =
-      config["Mirror"]["Custom"]["Iso_AlGaAs"]["Shear"].as<double>();
+  Y_AlGaAs_Phi[1][2][1][2] = c44_AlGaAs * lossPhi_AlGaAs_44;
+  Y_AlGaAs_Phi[1][2][2][1] = c44_AlGaAs * lossPhi_AlGaAs_44;
+  Y_AlGaAs_Phi[2][1][1][2] = c44_AlGaAs * lossPhi_AlGaAs_44;
+  Y_AlGaAs_Phi[2][1][2][1] = c44_AlGaAs * lossPhi_AlGaAs_44;
 
 }  // end of ElasticProblem constructor
 
@@ -922,17 +929,17 @@ void ElasticProblem<dim>::setup_system() {
 
   // Constraints handle Dirichlet condition and hanging-node constraints
   constraints.clear();
-  constraints.reinit(locally_relevant_dofs);  // if not locally relevant only,
-                                              // could use huge amount of
-                                              // memory
+  constraints.reinit(locally_relevant_dofs);  // if not locally relevant
+                                              // only, could use huge amount
+                                              // of memory
   DoFTools::make_hanging_node_constraints(dof_handler, constraints);
   VectorTools::interpolate_boundary_values(dof_handler, 0,
                                            ZeroFunction<dim>(dim), constraints);
   constraints.close();
 
   // Initialize the matrix. Use CompressedSimpleSparsityPattern
-  // if you don't yet know the final sparsity pattern, DynamicSparsityPattern
-  // works better than
+  // if you don't yet know the final sparsity pattern,
+  // DynamicSparsityPattern works better than
   // CompressedSimpleSparsityPattern csp (locally_relevant_dofs);
   DynamicSparsityPattern csp(locally_relevant_dofs);
 
@@ -1122,9 +1129,9 @@ void ElasticProblem<dim>::assemble_system() {
   system_rhs.compress(VectorOperation::add);
 
   // Note from Geoffrey: ZeroFunction here because we impose Dirichlet
-  // boundary conditions on boundaries flagged as zero (all but the z=0 face).
-  // ZeroFunction<dim>(dim) sets all dim=3 vector components: each becomes
-  // a dim=3 scalar function that's zero everywhere.
+  // boundary conditions on boundaries flagged as zero (all but the z=0
+  // face). ZeroFunction<dim>(dim) sets all dim=3 vector components: each
+  // becomes a dim=3 scalar function that's zero everywhere.
 
   // See step-17 for why add the false here: save time by not forcing
   // the system_matrix to be symmetric again...turns out not to slow down
@@ -1330,7 +1337,8 @@ void ElasticProblem<dim>::output_results(const unsigned int cycle) {
 
       // get function gradients at the quadrature points:
       // solution_gradients[q][c][d] is deriv in direction d of cth vector
-      // at quadrature point q. So u_{j;i}(x_q) = solution_gradients[q][j][i]
+      // at quadrature point q. So u_{j;i}(x_q) =
+      // solution_gradients[q][j][i]
       fe_values.get_function_gradients(locally_relevant_solution,
                                        solution_gradients);
 
@@ -1338,52 +1346,32 @@ void ElasticProblem<dim>::output_results(const unsigned int cycle) {
       double theYijkl = 0.;
       double sYijkl = 0;
 
-      // If custom loss angles are specified, then we calculate the energy
-      // for the coating using the appropriate youngs tensor.
-      if (config["Mirror"]["CustomLossAngles"].as<bool>()) {
-        for (unsigned int q_point = 0; q_point < n_q_points; ++q_point) {
-          for (int i = 0; i < dim; ++i) {
-            for (int j = 0; j < dim; ++j) {
-              for (int k = 0; k < dim; ++k) {
-                for (int l = 0; l < dim; ++l) {
-                  local_U_this_energy = 0.5 * fe_values.JxW(q_point) *
-                                        solution_gradients[q_point][j][i] *
-                                        solution_gradients[q_point][l][k];
+      for (unsigned int q_point = 0; q_point < n_q_points; ++q_point) {
+        for (int i = 0; i < dim; ++i) {
+          for (int j = 0; j < dim; ++j) {
+            for (int k = 0; k < dim; ++k) {
+              for (int l = 0; l < dim; ++l) {
+                local_U_this_energy = 0.5 * fe_values.JxW(q_point) *
+                                      solution_gradients[q_point][j][i] *
+                                      solution_gradients[q_point][l][k];
 
-                  // only perform the energy calculation for points above 0
-                  // since we are only interested in the coating.
-
-                  if (fe_values.quadrature_point(q_point)(dim - 1) > 0.) {
+                // only perform the energy calculation for points above 0
+                // since we are only interested in the coating.
+                if (fe_values.quadrature_point(q_point)(dim - 1) > 0.) {
+                  // If custom loss angles are specified, then we calculate
+                  // the energy for the coating using the appropriate youngs
+                  // tensor.
+                  if (config_multloss["CustomLossAngles"].as<bool>()) {
                     sYijkl =
                         getMultLossAngleYijkl(mWhichCoatingYijkl, i, j, k, l);
                     local_U_this_energy *= sYijkl;
                     local_coatingEnergy += local_U_this_energy;
+                  } else {
+                    theYijkl = getYijkl(mWhichCoatingYijkl, i, j, k, l);
+                    local_U_this_energy *= theYijkl;
+                    local_coatingEnergy += local_U_this_energy;
                   }
                   local_energy += local_U_this_energy;
-                }
-              }
-            }
-          }
-        }
-      } else {
-        for (unsigned int q_point = 0; q_point < n_q_points; ++q_point) {
-          for (int i = 0; i < dim; ++i) {
-            for (int j = 0; j < dim; ++j) {
-              for (int k = 0; k < dim; ++k) {
-                for (int l = 0; l < dim; ++l) {
-                  local_thisEnergy = 0.5 * fe_values.JxW(q_point) *
-                                     solution_gradients[q_point][j][i] *
-                                     solution_gradients[q_point][l][k];
-
-                  // only perform the energy calculation for points above 0
-                  // since we are only interested in the coating.
-
-                  if (fe_values.quadrature_point(q_point)(dim - 1) > 0.) {
-                    theYijkl = getYijkl(mWhichCoatingYijkl, i, j, k, l);
-                    local_thisEnergy *= theYijkl;
-                    local_coatingEnergy += local_thisEnergy;
-                  }
-                  local_energy += local_thisEnergy;
                 }
               }
             }
@@ -1436,8 +1424,8 @@ void ElasticProblem<dim>::output_results(const unsigned int cycle) {
   // So the code can compute f S = (4 k_B T / pi) \phi (U/F0^2)
   // I can put in effective loss angles \phi for different materials:
   // Fused silica, Tantalum, and AlGaAs with x=0.92.
-  // Note: I used 1=1TPa=1e12 Pa before, so I'm a factor of 1e12 away from SI
-  // units
+  // Note: I used 1=1TPa=1e12 Pa before, so I'm a factor of 1e12 away from
+  // SI units
 
   // compute noise (amplitude spectral density) in SI units (1/sqrt(Hz))
   // first, multiply by 1.e-12, since I set 1=1e12 Pa previously
@@ -1547,7 +1535,7 @@ void ElasticProblem<dim>::output_results(const unsigned int cycle) {
       toSI * fourKbToverPi * substrateEnergy * subLossAngle;
 
   double coatNoiseTimesf;
-  if (config["Mirror"]["CustomLossAngles"].as<bool>()) {
+  if (config_multloss["CustomLossAngles"].as<bool>()) {
     coatNoiseTimesf = toSI * fourKbToverPi * coatingEnergy;
   } else
     coatNoiseTimesf = toSI * fourKbToverPi * coatingEnergy * coatLossAngle;
@@ -1704,23 +1692,37 @@ void ElasticProblem<dim>::run() {
 }  // namespace QuasistaticBrownianThermalNoise
 
 int main(int argc, char** argv) {
-  // There is one command-line option we need: a path to the configuration file
+  // There is one command-line option we need: a path to the configuration
+  // files
   std::string config_file = "";
+  std::string config_multloss_file = "";
+
   // Parse the command-line arguments using catch's parser
   Catch::Session session;
+  // Catch::Session session_multloss;
   auto cli =
       session.cli() |
       Catch::clara::Opt(config_file, "config_file")["-c"]["--configuration"](
           "Path to configuration .yaml file");
   session.cli(cli);
+  auto cli_multloss =
+      session.cli() |
+      Catch::clara::Opt(
+          config_multloss_file,
+          "config_multloss_file")["-m"]["--configuration_multloss"](
+          "Path to configuration file with multiple loss angles .yaml "
+          "file");
+  session.cli(cli_multloss);
+
   const int return_code = session.applyCommandLine(argc, argv);
   if (return_code != 0) {
     // Command-line parsing error
     return return_code;
   }
 
-  // Parse the input file
+  // Parse the input files
   config = YAML::LoadFile(config_file);
+  config_multloss = YAML::LoadFile(config_multloss_file);
 
   try {
     using namespace dealii;
