@@ -22,7 +22,7 @@ Mirror:
   # The prefix Iso_ means isotropic.
   Materials:
     SubstrateMaterial: Iso_FusedSilica
-    CoatingMaterial: AlGaAs
+    CoatingMaterial: Iso_AlGaAs
 
   # Mirror temperature in Kelvin, for computing the thermal noise.
   Temperature: 300.0

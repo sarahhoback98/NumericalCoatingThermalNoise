@@ -1,0 +1,25 @@
+# Can be either true or false. If true we use the custom loss angles defined below.
+# If false, will use the default values for loss angles.
+UseMultipleLossAngles: True
+
+  # We define the loss angles for bulk/shear for different materials and crystaline AlGaAs.
+  # When the bulk and shear loss angles (as well as Phi11, Phi12, Phi44) are the same, we should
+  # get the analyic answer of only having one loss angle.
+  # The original values for the loss angles are included below
+  # lossPhi_Iso_FusedSilica = 1.e-6 // Cole+ (2013)
+  # lossPhi_Iso_Ta2O5 = 4.4e-4 // Yamamoto+ (2006), PRD 74, 022002
+  # lossPhi_Iso_AlGaAs = 2.5e-5 // Cole+ (2013)
+  # lossPhi = lossPhi_Iso_AlGaAs;  // use same loss angle from Cole+(2013)
+Fused_Silica:
+  Bulk:  1.e-6
+  Shear: 1.e-6
+Ta2O5:
+  Bulk:  4.e-4
+  Shear: 4.e-4
+Iso_AlGaAs:
+  Bulk:  2.5e-5
+  Shear: 2.5e-5
+Crystalline_AlGaAs:
+  Phi11: 2.5e-5
+  Phi12: 2.5e-5
+  Phi44: 2.5e-5
