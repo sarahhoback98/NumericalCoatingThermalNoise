@@ -1378,15 +1378,12 @@ void ElasticProblem<dim>::output_results(const unsigned int cycle) {
                                    solution_gradients[q_point][j][i] *
                                    solution_gradients[q_point][l][k];
 
-                if (fe_values.quadrature_point(q_point)(dim - 1) < 0.) {
+                if (fe_values.quadrature_point(q_point)(dim - 1) <= 0.0) {
                   theYijkl = getYijkl(mWhichSubstrateYijkl, i, j, k, l);
                   local_thisEnergy *= theYijkl;
                   local_substrateEnergy += local_thisEnergy;
+                  local_energy += local_thisEnergy;
                 }
-
-                // Add this quadrature point's contribution to the
-                // elastic energy.
-                local_energy += local_thisEnergy;
               }
             }
           }
